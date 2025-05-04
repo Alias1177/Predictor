@@ -288,7 +288,7 @@ func main() {
 	indicators := calculate.CalculateAllIndicators(candles, &cfg)
 
 	// 5) Multi-timeframe (необязательно, если вам нужно)
-	mtfData, err := calculate.GetMultiTimeframeData(ctx, client, cfg.Symbol)
+	mtfData, err := calculate.GetMultiTimeframeData(ctx, cfg.TwelveAPIKey, cfg.Symbol)
 	if err != nil {
 		log.Warn().Err(err).Msg("mtf fetch failed")
 	}

@@ -9,7 +9,7 @@ import (
 )
 
 // getMultiTimeframeData fetches candle data for multiple timeframes
-func GetMultiTimeframeData(ctx context.Context, client *config.Client, symbol string) (map[string][]models.Candle, error) {
+func GetMultiTimeframeData(ctx context.Context, apiKey string, symbol string) (map[string][]models.Candle, error) {
 	// Updated to use supported intervals from Twelve Data API
 	timeframes := map[string]string{
 		"1min":  "1min",
@@ -33,9 +33,10 @@ func GetMultiTimeframeData(ctx context.Context, client *config.Client, symbol st
 			// Create a new config for different interval
 			// Use the client's API to get or create a configuration instead of accessing private fields
 			tempConfig := models.Config{
-				Symbol:      symbol,
-				Interval:    interval,
-				CandleCount: 30,
+				Symbol:       symbol,
+				Interval:     interval,
+				CandleCount:  30,
+				TwelveAPIKey: apiKey,
 			}
 			if interval == "15min" {
 				tempConfig.CandleCount = 20
