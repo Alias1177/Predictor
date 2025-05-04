@@ -1,4 +1,4 @@
-package calculate
+package patterns
 
 import "chi/Predictor/models"
 

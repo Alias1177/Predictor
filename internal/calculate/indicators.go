@@ -1,7 +1,6 @@
 package calculate
 
 import (
-	"chi/Predictor/internal/analyze"
 	"chi/Predictor/internal/patterns"
 	"chi/Predictor/models"
 )
@@ -15,7 +14,7 @@ func CalculateAllIndicators(candles []models.Candle, config *models.Config) *mod
 	// If adaptive parameters are enabled, adjust config first
 	computeConfig := config
 	if config.AdaptiveIndicator {
-		computeConfig = analyze.AdaptIndicatorParameters(candles, config)
+		computeConfig = AdaptIndicatorParameters(candles, config)
 	}
 
 	// Calculate RSI
@@ -37,7 +36,7 @@ func CalculateAllIndicators(candles []models.Candle, config *models.Config) *mod
 	)
 
 	// Calculate EMA
-	ema := calculateEMA(candles, computeConfig.EMAPeriod)
+	ema := patterns.CalculateEMA(candles, computeConfig.EMAPeriod)
 
 	// Calculate ATR
 	atr := CalculateATR(candles, computeConfig.ATRPeriod)
@@ -82,7 +81,7 @@ func CalculateAllIndicators(candles []models.Candle, config *models.Config) *mod
 	support, resistance := identifySupportResistance(candles)
 
 	// Generate trade signal based on multiple indicators
-	tradeSignal := analyze.DetermineTradeSignal(
+	tradeSignal := DetermineTradeSignal(
 		rsi, macd, macdSignal, macdHist,
 		lastClose, bbUpper, bbMiddle, bbLower,
 		stochK, stochD, adx, plusDI, minusDI,

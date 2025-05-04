@@ -1,6 +1,7 @@
 package config
 
 import (
+	"chi/Predictor/internal/calculate"
 	"chi/Predictor/models"
 	"context"
 	"encoding/json"
@@ -133,7 +134,7 @@ func (c *Client) GetHistoricalCandles(ctx context.Context, days int) ([]models.C
 	}
 
 	// Calculate candles needed for backtest based on interval and days
-	outputSize := calculateCandlesForBacktest(c.config.Interval, days)
+	outputSize := calculate.CalculateCandlesForBacktest(c.config.Interval, days)
 
 	url := fmt.Sprintf(
 		"https://api.twelvedata.com/time_series?symbol=%s&interval=%s&outputsize=%d&apikey=%s",

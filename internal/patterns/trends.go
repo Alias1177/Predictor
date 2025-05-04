@@ -1,7 +1,6 @@
 package patterns
 
 import (
-	"chi/Predictor/internal/calculate"
 	"chi/Predictor/models"
 	"math"
 )
@@ -89,8 +88,8 @@ func DetectTrendAlignment(mtfData map[string][]models.Candle, config *models.Con
 		prevPrev := candles[len(candles)-3].Close
 
 		// Calculate fast and slow EMAs
-		fastEMA := calculate.CalculateEMA(candles, 8)
-		slowEMA := calculate.CalculateEMA(candles, 21)
+		fastEMA := CalculateEMA(candles, 8)
+		slowEMA := CalculateEMA(candles, 21)
 
 		// Determine trend direction and strength
 		trendDirection := 0.0

@@ -1,7 +1,7 @@
 package anomaly
 
 import (
-	"chi/Predictor/internal/calculate"
+	"chi/Predictor/internal/utils"
 	"chi/Predictor/models"
 	"math"
 )
@@ -31,9 +31,9 @@ func EnhancedMarketRegimeClassification(candles []models.Candle) *models.MarketR
 	}
 
 	// Calculate key indicators
-	adx, plusDI, minusDI := calculate.CalculateADX(candles, 14)
-	atr10 := calculate.CalculateATR(candles, 10)
-	atr30 := calculate.CalculateATR(candles, 30)
+	adx, plusDI, minusDI := utils.CalculateADX(candles, 14)
+	atr10 := utils.CalculateATR(candles, 10)
+	atr30 := utils.CalculateATR(candles, 30)
 
 	// Volatility analysis
 	volatilityRatio := atr10 / atr30

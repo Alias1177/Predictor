@@ -1,7 +1,7 @@
 package analyze
 
 import (
-	"chi/Predictor/internal/calculate"
+	"chi/Predictor/internal/utils"
 	"chi/Predictor/models"
 )
 
@@ -63,8 +63,8 @@ func analyzeOrderFlow(candles []models.Candle) (string, float64) {
 // assessVolatilityConditions analyzes market volatility
 func assessVolatilityConditions(candles []models.Candle) (string, float64) {
 	// Calculate ATR for different periods
-	atr5 := calculate.CalculateATR(candles, 5)
-	atr20 := calculate.CalculateATR(candles, 20)
+	atr5 := utils.CalculateATR(candles, 5)
+	atr20 := utils.CalculateATR(candles, 20)
 
 	// Calculate volatility ratio
 	volatilityRatio := atr5 / atr20

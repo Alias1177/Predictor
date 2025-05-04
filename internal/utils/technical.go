@@ -1,10 +1,12 @@
-package calculate
+package utils
 
 import (
+	"chi/Predictor/internal/calculate"
 	"chi/Predictor/models"
 	"math"
 )
 
+// Copy the CalculateATR function from calculate/ATR.go
 func CalculateATR(candles []models.Candle, period int) float64 {
 	if len(candles) < period+1 {
 		return 0
@@ -41,7 +43,21 @@ func CalculateATR(candles []models.Candle, period int) float64 {
 	return sum / float64(periodToUse)
 }
 
-// calculateADX calculates Average Directional Index
+// Also add any other calculation functions that both packages need
+func MinInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func MaxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
 func CalculateADX(candles []models.Candle, period int) (float64, float64, float64) {
 	if len(candles) < period*2 {
 		return 0, 0, 0 // Not enough data
@@ -79,7 +95,7 @@ func CalculateADX(candles []models.Candle, period int) (float64, float64, float6
 	}
 
 	// Calculate initial ATR
-	_ = calculateAverage(trueRange[:period])
+	_ = calculate.CalculateAverage(trueRange[:period])
 
 	// Calculate smoothed +DM14, -DM14, and TR14
 	var smoothedPlusDM, smoothedMinusDM, smoothedTR float64

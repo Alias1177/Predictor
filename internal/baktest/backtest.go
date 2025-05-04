@@ -2,6 +2,10 @@ package baktest
 
 import (
 	"chi/Predictor/config"
+	"chi/Predictor/internal/analyze"
+	"chi/Predictor/internal/anomaly"
+	"chi/Predictor/internal/calculate"
+	"chi/Predictor/internal/utils"
 
 	"chi/Predictor/models"
 	"context"
@@ -68,23 +72,23 @@ func RunBacktest(ctx context.Context, client *config.Client, config *models.Conf
 		testWindow := historicalCandles[i-windowSize : i]
 
 		// Рассчитываем индикаторы для этого окна
-		indicators := calculateAllIndicators(testWindow, config)
+		indicators := calculate.CalculateAllIndicators(testWindow, config)
 
 		// Получаем рыночный режим и аномалии
-		regime := enhancedMarketRegimeClassification(testWindow)
-		anomaly := detectMarketAnomalies(testWindow)
+		regime := anomaly.EnhancedMarketRegimeClassification(testWindow)
+		anomaly := anomaly.DetectMarketAnomalies(testWindow)
 
 		// Получаем мультитаймфреймовые данные
-		mtfData := map[string][]Candle{
+		mtfData := map[string][]models.Candle{
 			"5min": testWindow,
 		}
 
 		// Генерируем прогноз
-		direction, confidence, score, factors := enhancedPrediction(
+		direction, confidence, score, factors := analyze.EnhancedPrediction(
 			testWindow, indicators, mtfData, regime, anomaly, config)
 
 		// Создаем запись о прогнозе
-		result := PredictionResult{
+		result := models.PredictionResult{
 			Direction:        direction,
 			Confidence:       confidence,
 			Score:            score,
@@ -282,10 +286,10 @@ func RunBacktest(ctx context.Context, client *config.Client, config *models.Conf
 	// Расчет процентных показателей относительно цены
 	basePrice := 0.0
 	if len(historicalCandles) > 0 {
-		for i := len(historicalCandles) - minInt(20, len(historicalCandles)); i < len(historicalCandles); i++ {
+		for i := len(historicalCandles) - utils.MinInt(20, len(historicalCandles)); i < len(historicalCandles); i++ {
 			basePrice += historicalCandles[i].Close
 		}
-		basePrice /= float64(minInt(20, len(historicalCandles)))
+		basePrice /= float64(utils.MinInt(20, len(historicalCandles)))
 	}
 
 	if basePrice > 0 {

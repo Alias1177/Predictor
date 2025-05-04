@@ -1,8 +1,8 @@
-package analyze
+package calculate
 
 import (
 	"chi/Predictor/internal/anomaly"
-	"chi/Predictor/internal/calculate"
+	"chi/Predictor/internal/utils"
 	"chi/Predictor/models"
 	"math"
 )
@@ -17,8 +17,8 @@ func AdaptIndicatorParameters(candles []models.Candle, config *models.Config) *m
 	adaptedConfig := *config
 
 	// Calculate volatility measures
-	atr5 := calculate.CalculateATR(candles, 5)
-	atr20 := calculate.CalculateATR(candles, 20)
+	atr5 := utils.CalculateATR(candles, 5)
+	atr20 := utils.CalculateATR(candles, 20)
 	volatilityRatio := atr5 / atr20
 
 	// Check market regime
@@ -27,10 +27,10 @@ func AdaptIndicatorParameters(candles []models.Candle, config *models.Config) *m
 	// Adjust RSI period based on volatility
 	if volatilityRatio > 1.5 {
 		// Higher volatility - use shorter periods for faster reaction
-		adaptedConfig.RSIPeriod = calculate.MaxInt(5, config.RSIPeriod-2)
+		adaptedConfig.RSIPeriod = utils.MaxInt(5, config.RSIPeriod-2)
 	} else if volatilityRatio < 0.7 {
 		// Lower volatility - use longer periods to reduce noise
-		adaptedConfig.RSIPeriod = calculate.MinInt(14, config.RSIPeriod+2)
+		adaptedConfig.RSIPeriod = utils.MinInt(14, config.RSIPeriod+2)
 	}
 
 	// Adjust Bollinger Bands parameters based on market regime
@@ -45,21 +45,21 @@ func AdaptIndicatorParameters(candles []models.Candle, config *models.Config) *m
 	// Adjust MACD parameters based on market regime
 	if regime.Type == "CHOPPY" || regime.Type == "RANGING" {
 		// In non-trending markets, use wider MACD settings
-		adaptedConfig.MACDFastPeriod = calculate.MinInt(12, config.MACDFastPeriod+2)
-		adaptedConfig.MACDSlowPeriod = calculate.MinInt(26, config.MACDSlowPeriod+3)
+		adaptedConfig.MACDFastPeriod = utils.MinInt(12, config.MACDFastPeriod+2)
+		adaptedConfig.MACDSlowPeriod = utils.MinInt(26, config.MACDSlowPeriod+3)
 	} else if regime.Type == "TRENDING" && regime.Strength > 0.6 {
 		// In trending markets, use more responsive MACD settings
-		adaptedConfig.MACDFastPeriod = calculate.MaxInt(5, config.MACDFastPeriod-1)
-		adaptedConfig.MACDSlowPeriod = calculate.MaxInt(12, config.MACDSlowPeriod-2)
+		adaptedConfig.MACDFastPeriod = utils.MaxInt(5, config.MACDFastPeriod-1)
+		adaptedConfig.MACDSlowPeriod = utils.MaxInt(12, config.MACDSlowPeriod-2)
 	}
 
 	// Adjust EMA period based on momentum
 	if regime.MomentumStrength > 0.7 {
 		// Strong momentum - use shorter EMA period
-		adaptedConfig.EMAPeriod = calculate.MaxInt(8, config.EMAPeriod-2)
+		adaptedConfig.EMAPeriod = utils.MaxInt(8, config.EMAPeriod-2)
 	} else if regime.MomentumStrength < 0.3 {
 		// Weak momentum - use longer EMA period
-		adaptedConfig.EMAPeriod = calculate.MinInt(15, config.EMAPeriod+2)
+		adaptedConfig.EMAPeriod = utils.MinInt(15, config.EMAPeriod+2)
 	}
 
 	return &adaptedConfig

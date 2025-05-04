@@ -1,7 +1,7 @@
 package calculate
 
 // calculateAverage calculates simple average
-func calculateAverage(values []float64) float64 {
+func CalculateAverage(values []float64) float64 {
 	if len(values) == 0 {
 		return 0
 	}

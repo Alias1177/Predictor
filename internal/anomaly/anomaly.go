@@ -1,7 +1,7 @@
 package anomaly
 
 import (
-	"chi/Predictor/internal/calculate"
+	"chi/Predictor/internal/utils"
 	"chi/Predictor/models"
 	"fmt"
 	"math"
@@ -27,8 +27,8 @@ func DetectMarketAnomalies(candles []models.Candle) *models.AnomalyDetection {
 	current := candles[len(candles)-1]
 
 	// Calculate recent volatility baseline
-	atr10 := calculate.CalculateATR(candles, 10)
-	atr50 := calculate.CalculateATR(candles, calculate.MinInt(50, len(candles)-1))
+	atr10 := utils.CalculateATR(candles, 10)
+	atr50 := utils.CalculateATR(candles, utils.MinInt(50, len(candles)-1))
 
 	volatilityRatio := atr10 / atr50
 

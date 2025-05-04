@@ -1,4 +1,4 @@
-package analyze
+package calculate
 
 // determineTradeSignal generates a trade signal based on multiple indicators
 func DetermineTradeSignal(rsi, macd, macdSignal, macdHist, price, bbUpper, bbMiddle, bbLower,
