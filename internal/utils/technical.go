@@ -1,7 +1,6 @@
 package utils
 
 import (
-	"chi/Predictor/internal/calculate"
 	"chi/Predictor/models"
 	"math"
 )
@@ -95,7 +94,7 @@ func CalculateADX(candles []models.Candle, period int) (float64, float64, float6
 	}
 
 	// Calculate initial ATR
-	_ = calculate.CalculateAverage(trueRange[:period])
+	_ = CalculateAverage(trueRange[:period])
 
 	// Calculate smoothed +DM14, -DM14, and TR14
 	var smoothedPlusDM, smoothedMinusDM, smoothedTR float64
@@ -138,4 +137,16 @@ func CalculateADX(candles []models.Candle, period int) (float64, float64, float6
 	}
 
 	return adx, plusDI, minusDI
+}
+func CalculateAverage(values []float64) float64 {
+	if len(values) == 0 {
+		return 0
+	}
+
+	var sum float64
+	for _, value := range values {
+		sum += value
+	}
+
+	return sum / float64(len(values))
 }

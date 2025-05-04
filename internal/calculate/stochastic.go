@@ -1,6 +1,9 @@
 package calculate
 
-import "chi/Predictor/models"
+import (
+	"chi/Predictor/internal/utils"
+	"chi/Predictor/models"
+)
 
 func calculateStochastic(candles []models.Candle, kPeriod, dPeriod int) (float64, float64) {
 	if len(candles) < kPeriod {
@@ -31,7 +34,7 @@ func calculateStochastic(candles []models.Candle, kPeriod, dPeriod int) (float64
 
 	// Calculate %D (simple moving average of %K)
 	var kSum float64
-	count := MinInt(dPeriod, len(candles))
+	count := utils.MinInt(dPeriod, len(candles))
 
 	for i := 0; i < count; i++ {
 		// For each point, calculate its own %K

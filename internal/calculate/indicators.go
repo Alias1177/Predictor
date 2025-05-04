@@ -2,6 +2,7 @@ package calculate
 
 import (
 	"chi/Predictor/internal/patterns"
+	"chi/Predictor/internal/utils"
 	"chi/Predictor/models"
 )
 
@@ -39,10 +40,10 @@ func CalculateAllIndicators(candles []models.Candle, config *models.Config) *mod
 	ema := patterns.CalculateEMA(candles, computeConfig.EMAPeriod)
 
 	// Calculate ATR
-	atr := CalculateATR(candles, computeConfig.ATRPeriod)
+	atr := utils.CalculateATR(candles, computeConfig.ATRPeriod)
 
 	// Calculate ADX
-	adx, plusDI, minusDI := CalculateADX(candles, computeConfig.ADXPeriod)
+	adx, plusDI, minusDI := utils.CalculateADX(candles, computeConfig.ADXPeriod)
 
 	// Calculate Stochastic
 	stochK, stochD := calculateStochastic(candles, 14, 3)
@@ -51,8 +52,8 @@ func CalculateAllIndicators(candles []models.Candle, config *models.Config) *mod
 	obv := calculateOBV(candles)
 
 	// Calculate volatility ratio
-	atr5 := CalculateATR(candles, 5)
-	atr20 := CalculateATR(candles, 20)
+	atr5 := utils.CalculateATR(candles, 5)
+	atr20 := utils.CalculateATR(candles, 20)
 	volatilityRatio := atr5 / atr20
 
 	// Price change percentage over last 5 candles
