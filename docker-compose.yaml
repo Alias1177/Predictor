@@ -1,0 +1,20 @@
+services:
+  predictor:
+    build: .
+    container_name: forex-predictor
+    volumes:
+      - ./.env:/app/.env
+    restart: unless-stopped
+    environment:
+      - APP_TYPE=app
+      - TZ=Europe/Moscow
+
+  tgbot:
+    build: .
+    container_name: forex-tgbot
+    volumes:
+      - ./.env:/app/.env
+    restart: unless-stopped
+    environment:
+      - APP_TYPE=bot
+      - TZ=Europe/Moscow

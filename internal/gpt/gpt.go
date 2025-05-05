@@ -47,3 +47,21 @@ func AskGPT(openaiKey, prompt string) {
 	}
 	fmt.Println("📈 Ответ модели:\n", resp.Choices[0].Message.Content)
 }
+func ProcessGPT(ctx context.Context, openaiKey, prompt string) (string, error) {
+	client := openai.NewClient(openaiKey)
+	resp, err := client.CreateChatCompletion(
+		ctx,
+		openai.ChatCompletionRequest{
+			Model: openai.GPT4,
+			Messages: []openai.ChatCompletionMessage{
+				{Role: openai.ChatMessageRoleUser, Content: prompt},
+			},
+		},
+	)
+	if err != nil {
+		log.Error().Err(err).Msg("OpenAI error")
+		return "", err
+	}
+
+	return resp.Choices[0].Message.Content, nil
+}
