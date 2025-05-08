@@ -1,4 +1,4 @@
-module chi/Predictor
+module github.com/Alias1177/Predictor
 
 go 1.24
 
