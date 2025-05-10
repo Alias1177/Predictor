@@ -1,20 +1,55 @@
+version: '3'
+
 services:
-  predictor:
-    build: .
-    container_name: forex-predictor
-    volumes:
-      - ./.env:/app/.env
-    restart: unless-stopped
+  postgresql:
+    image: postgres:15
+    restart: always
     environment:
-      - APP_TYPE=app
-      - TZ=Europe/Moscow
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=secretpass
+      - POSTGRES_DB=predictor
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    networks:
+      - predictor-network
 
   tgbot:
-    build: .
-    container_name: forex-tgbot
-    volumes:
-      - ./.env:/app/.env
-    restart: unless-stopped
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: tgbot
+    restart: always
     environment:
-      - APP_TYPE=bot
-      - TZ=Europe/Moscow
+      - TZ=UTC
+    env_file:
+      - .env
+    networks:
+      - predictor-network
+    depends_on:
+      - postgresql
+
+  webhook:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: webhook
+    restart: always
+    ports:
+      - "8080:8080"
+    environment:
+      - TZ=UTC
+    env_file:
+      - .env
+    networks:
+      - predictor-network
+    depends_on:
+      - postgresql
+
+volumes:
+  postgres_data:
+
+networks:
+  predictor-network:
+    driver: bridge

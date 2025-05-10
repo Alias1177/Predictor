@@ -1,13 +1,13 @@
 package main
 
 import (
-	"chi/Predictor/config"
-	"chi/Predictor/internal/analyze"
-	"chi/Predictor/internal/anomaly"
-	"chi/Predictor/internal/baktest"
-	"chi/Predictor/internal/calculate"
-	"chi/Predictor/internal/gpt"
-	"chi/Predictor/models"
+	"github.com/Alias1177/Predictor/config"
+	"github.com/Alias1177/Predictor/internal/analyze"
+	"github.com/Alias1177/Predictor/internal/anomaly"
+	"github.com/Alias1177/Predictor/internal/baktest"
+	"github.com/Alias1177/Predictor/internal/calculate"
+	"github.com/Alias1177/Predictor/internal/gpt"
+	"github.com/Alias1177/Predictor/models"
 	"context"
 	"fmt"
 	"github.com/joho/godotenv"

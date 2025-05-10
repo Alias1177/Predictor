@@ -1,6 +1,6 @@
 package patterns
 
-import "chi/Predictor/models"
+import "github.com/Alias1177/Predictor/models"
 
 func CalculateEMA(candles []models.Candle, period int) float64 {
 	if len(candles) < period {

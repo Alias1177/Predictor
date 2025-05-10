@@ -166,3 +166,23 @@ type Signal struct {
 	Source     string // indicator, pattern, combination
 	Indicators map[string]float64
 }
+
+// Payment status constants
+const (
+	PaymentStatusPending  = "pending"
+	PaymentStatusAccepted = "accepted"
+	PaymentStatusClosed   = "closed"
+)
+
+// UserSubscription represents a user's subscription status
+type UserSubscription struct {
+	UserID        int64     `json:"user_id"`
+	ChatID        int64     `json:"chat_id"`
+	Status        string    `json:"status"` // pending, accepted, closed
+	CreatedAt     time.Time `json:"created_at"`
+	ExpiresAt     time.Time `json:"expires_at"`    // when the subscription expires
+	PaymentID     string    `json:"payment_id"`    // Stripe payment ID
+	CurrencyPair  string    `json:"currency_pair"` // Selected currency pair
+	Timeframe     string    `json:"timeframe"`     // Selected timeframe
+	LastPredicted time.Time `json:"last_predicted,omitempty"`
+}

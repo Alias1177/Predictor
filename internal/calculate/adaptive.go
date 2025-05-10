@@ -1,9 +1,9 @@
 package calculate
 
 import (
-	"chi/Predictor/internal/anomaly"
-	"chi/Predictor/internal/utils"
-	"chi/Predictor/models"
+	"github.com/Alias1177/Predictor/internal/anomaly"
+	"github.com/Alias1177/Predictor/internal/utils"
+	"github.com/Alias1177/Predictor/models"
 	"math"
 )
 

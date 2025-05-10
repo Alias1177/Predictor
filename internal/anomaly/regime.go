@@ -1,8 +1,8 @@
 package anomaly
 
 import (
-	"chi/Predictor/internal/utils"
-	"chi/Predictor/models"
+	"github.com/Alias1177/Predictor/internal/utils"
+	"github.com/Alias1177/Predictor/models"
 	"math"
 )
 

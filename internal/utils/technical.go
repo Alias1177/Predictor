@@ -1,7 +1,7 @@
 package utils
 
 import (
-	"chi/Predictor/models"
+	"github.com/Alias1177/Predictor/models"
 	"math"
 )
 

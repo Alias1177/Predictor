@@ -1,12 +1,6 @@
 package main
 
 import (
-	"chi/Predictor/config"
-	"chi/Predictor/internal/analyze"
-	"chi/Predictor/internal/anomaly"
-	"chi/Predictor/internal/calculate"
-	"chi/Predictor/internal/gpt"
-	"chi/Predictor/models"
 	"context"
 	"fmt"
 	"log"
@@ -14,6 +8,17 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	_ "github.com/lib/pq" // PostgreSQL драйвер
+
+	"github.com/Alias1177/Predictor/config"
+	"github.com/Alias1177/Predictor/internal/analyze"
+	"github.com/Alias1177/Predictor/internal/anomaly"
+	"github.com/Alias1177/Predictor/internal/calculate"
+	"github.com/Alias1177/Predictor/internal/database"
+	"github.com/Alias1177/Predictor/internal/gpt"
+	"github.com/Alias1177/Predictor/internal/payment"
+	"github.com/Alias1177/Predictor/models"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/joho/godotenv"
@@ -36,19 +41,55 @@ var (
 	userStates = make(map[int64]*UserState)
 )
 
+// User state stages
+const (
+	StageInitial          = 0
+	StageAwaitingPair     = 1
+	StageAwaitingInterval = 2
+	StageAwaitingPayment  = 3
+	StagePremium          = 4
+)
+
 // UserState represents the current state of a user's interaction
 type UserState struct {
-	Stage        int       // 0: initial, 1: awaiting pair, 2: awaiting interval
+	Stage        int       // 0: initial, 1: awaiting pair, 2: awaiting interval, 3: awaiting payment, 4: premium
 	Symbol       string    // selected currency pair
 	Interval     string    // selected time interval
 	LastActivity time.Time // time of last activity
+	PaymentURL   string    // Stripe payment URL
+	SessionID    string    // Stripe session ID
 }
+
+// Global variables for database and payment service
+var (
+	db            *database.DB
+	stripeService *payment.StripeService
+)
 
 func init() {
 	// Load .env file
 	if err := godotenv.Load(); err != nil {
 		log.Println(".env file not found, relying on actual environment variables")
 	}
+
+	// Initialize database with PostgreSQL connection
+	var err error
+	dbParams := database.ConnectionParams{
+		Host:     os.Getenv("DB_HOST"),
+		Port:     os.Getenv("DB_PORT"),
+		User:     os.Getenv("DB_USER"),
+		Password: os.Getenv("DB_PASSWORD"),
+		DBName:   os.Getenv("DB_NAME"),
+		SSLMode:  os.Getenv("DB_SSLMODE"),
+	}
+
+	db, err = database.New(dbParams)
+	if err != nil {
+		log.Fatalf("Failed to initialize database: %v", err)
+	}
+
+	// Initialize Stripe service
+	stripeService = payment.NewStripeService()
 }
 
 func main() {
@@ -78,6 +119,9 @@ func main() {
 	// Get updates channel
 	updates := bot.GetUpdatesChan(updateConfig)
 
+	// Start a goroutine to regularly check for expired subscriptions
+	go checkExpiredSubscriptions()
+
 	// Start handling updates
 	for update := range updates {
 		if update.Message != nil {
@@ -88,23 +132,62 @@ func main() {
 	}
 }
 
+// checkExpiredSubscriptions runs periodically to update expired subscriptions
+func checkExpiredSubscriptions() {
+	ticker := time.NewTicker(1 * time.Hour)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		if err := db.CheckAndUpdateExpirations(); err != nil {
+			log.Printf("Error checking expired subscriptions: %v", err)
+		}
+	}
+}
+
 // handleMessage processes incoming text messages
 func handleMessage(bot *tgbotapi.BotAPI, message *tgbotapi.Message, logger *zerolog.Logger) {
 	userID := message.From.ID
 	chatID := message.Chat.ID
 
+	// Check if this is a start command with parameters
+	if strings.HasPrefix(message.Text, "/start") {
+		parts := strings.Split(message.Text, " ")
+		if len(parts) > 1 {
+			param := parts[1]
+			if param == "payment_success" {
+				// User returned after successful payment
+				handlePaymentSuccess(bot, userID, chatID)
+				return
+			} else if param == "payment_cancel" {
+				// User cancelled payment
+				handlePaymentCancel(bot, userID, chatID)
+				return
+			}
+		}
+	}
+
 	// Get or initialize user state
 	state, exists := userStates[userID]
 	if !exists || message.Text == "/start" {
 		userStates[userID] = &UserState{
-			Stage:        0,
+			Stage:        StageInitial,
 			LastActivity: time.Now(),
 		}
 		state = userStates[userID]
 
+		// Check if user has an active subscription
+		sub, err := db.GetSubscription(userID)
+		if err != nil {
+			logger.Error().Err(err).Int64("user_id", userID).Msg("Error retrieving subscription")
+		} else if sub != nil && sub.Status == models.PaymentStatusAccepted {
+			state.Stage = StagePremium
+			state.Symbol = sub.CurrencyPair
+			state.Interval = sub.Timeframe
+		}
+
 		// Send welcome message with main menu
 		msg := tgbotapi.NewMessage(chatID, "Welcome to the Forex Predictor Bot! What would you like to do?")
-		msg.ReplyMarkup = getMainMenuKeyboard()
+		msg.ReplyMarkup = getMainMenuKeyboard(state.Stage == StagePremium)
 		bot.Send(msg)
 		return
 	}
@@ -115,56 +198,153 @@ func handleMessage(bot *tgbotapi.BotAPI, message *tgbotapi.Message, logger *zero
 	switch message.Text {
 	case "/start", "Main Menu":
 		msg := tgbotapi.NewMessage(chatID, "Welcome to the Forex Predictor Bot! What would you like to do?")
-		msg.ReplyMarkup = getMainMenuKeyboard()
+		msg.ReplyMarkup = getMainMenuKeyboard(state.Stage == StagePremium)
 		bot.Send(msg)
-		state.Stage = 0
+		state.Stage = StageInitial
 	case "Select Currency Pair":
 		sendCurrencyPairMenu(bot, chatID)
-		state.Stage = 1
+		state.Stage = StageAwaitingPair
 	case "Select Timeframe":
 		if state.Symbol == "" {
 			msg := tgbotapi.NewMessage(chatID, "Please select a currency pair first.")
 			bot.Send(msg)
 			sendCurrencyPairMenu(bot, chatID)
-			state.Stage = 1
+			state.Stage = StageAwaitingPair
 		} else {
 			sendTimeframeMenu(bot, chatID)
-			state.Stage = 2
+			state.Stage = StageAwaitingInterval
 		}
 	case "Run Prediction":
 		if state.Symbol == "" || state.Interval == "" {
 			msg := tgbotapi.NewMessage(chatID, "Please select both currency pair and timeframe before running prediction.")
 			bot.Send(msg)
 			msg = tgbotapi.NewMessage(chatID, "What would you like to do?")
-			msg.ReplyMarkup = getMainMenuKeyboard()
+			msg.ReplyMarkup = getMainMenuKeyboard(state.Stage == StagePremium)
 			bot.Send(msg)
-			state.Stage = 0
+			state.Stage = StageInitial
 		} else {
-			runPrediction(bot, chatID, state, logger)
+			// Check subscription status
+			sub, err := db.GetSubscription(userID)
+			if err != nil {
+				logger.Error().Err(err).Int64("user_id", userID).Msg("Error retrieving subscription")
+				msg := tgbotapi.NewMessage(chatID, "Sorry, there was an error. Please try again later.")
+				bot.Send(msg)
+				return
+			}
+
+			if sub == nil || sub.Status != models.PaymentStatusAccepted {
+				// User needs to pay for subscription
+				msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("To run predictions for %s on %s timeframe, you need a premium subscription. The subscription costs $9.99 per month.", state.Symbol, state.Interval))
+				msg.ReplyMarkup = getPaymentKeyboard()
+				bot.Send(msg)
+				state.Stage = StageAwaitingPayment
+			} else {
+				// User has active subscription, run prediction
+				runPrediction(bot, chatID, state, logger)
+				// Update last predicted time
+				if err := db.UpdateLastPredicted(userID); err != nil {
+					logger.Error().Err(err).Int64("user_id", userID).Msg("Error updating last predicted time")
+				}
+			}
+		}
+	case "Subscribe Now":
+		if state.Symbol == "" || state.Interval == "" {
+			msg := tgbotapi.NewMessage(chatID, "Please select both currency pair and timeframe before subscribing.")
+			bot.Send(msg)
+			sendCurrencyPairMenu(bot, chatID)
+			state.Stage = StageAwaitingPair
+			return
+		}
+
+		// Create subscription in database
+		_, err := db.CreateSubscription(userID, chatID, state.Symbol, state.Interval)
+		if err != nil {
+			logger.Error().Err(err).Int64("user_id", userID).Msg("Error creating subscription")
+			msg := tgbotapi.NewMessage(chatID, "Sorry, there was an error. Please try again later.")
+			bot.Send(msg)
+			return
+		}
+
+		// Create Stripe checkout session
+		sessionID, paymentURL, err := stripeService.CreateCheckoutSession(userID, state.Symbol, state.Interval)
+		if err != nil {
+			logger.Error().Err(err).Int64("user_id", userID).Msg("Error creating Stripe session")
+			msg := tgbotapi.NewMessage(chatID, "Sorry, there was an error with the payment system. Please try again later.")
+			bot.Send(msg)
+			return
+		}
+
+		// Save payment info in user state
+		state.PaymentURL = paymentURL
+		state.SessionID = sessionID
+		state.Stage = StageAwaitingPayment
+
+		// Send payment instructions
+		msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("Please complete your payment to access premium predictions for %s on %s timeframe.", state.Symbol, state.Interval))
+
+		keyboard := tgbotapi.NewInlineKeyboardMarkup(
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonURL("Pay Now", paymentURL),
+			),
+		)
+		msg.ReplyMarkup = keyboard
+		bot.Send(msg)
+
+		// Add follow-up message
+		followUp := tgbotapi.NewMessage(chatID, "After completing payment, return to this chat. Your subscription will be activated automatically.")
+		bot.Send(followUp)
+	case "/status":
+		// Check subscription status
+		sub, err := db.GetSubscription(userID)
+		if err != nil {
+			logger.Error().Err(err).Int64("user_id", userID).Msg("Error retrieving subscription")
+			msg := tgbotapi.NewMessage(chatID, "Sorry, there was an error. Please try again later.")
+			bot.Send(msg)
+			return
+		}
+
+		if sub == nil {
+			msg := tgbotapi.NewMessage(chatID, "You don't have an active subscription. Select a currency pair and timeframe to subscribe.")
+			bot.Send(msg)
+		} else {
+			var statusMsg string
+			switch sub.Status {
+			case models.PaymentStatusPending:
+				statusMsg = "Your subscription is pending payment. Please complete the payment to activate your subscription."
+			case models.PaymentStatusAccepted:
+				daysLeft := int(sub.ExpiresAt.Sub(time.Now()).Hours() / 24)
+				statusMsg = fmt.Sprintf("You have an active subscription for %s on %s timeframe. Your subscription will expire in %d days.", sub.CurrencyPair, sub.Timeframe, daysLeft)
+			case models.PaymentStatusClosed:
+				statusMsg = "Your subscription has expired. Please subscribe again to continue using premium features."
+			default:
+				statusMsg = "Your subscription status is unknown. Please contact support."
+			}
+			msg := tgbotapi.NewMessage(chatID, statusMsg)
+			bot.Send(msg)
 		}
 	default:
 		// Handle other inputs based on current stage
 		switch state.Stage {
-		case 1: // Expecting currency pair
+		case StageAwaitingPair: // Expecting currency pair
 			if contains(supportedPairs, message.Text) {
 				state.Symbol = message.Text
 				msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("Selected pair: %s\nNow select a timeframe.", message.Text))
 				bot.Send(msg)
 				sendTimeframeMenu(bot, chatID)
-				state.Stage = 2
+				state.Stage = StageAwaitingInterval
 			} else {
 				msg := tgbotapi.NewMessage(chatID, "Invalid currency pair. Please choose from the list:")
 				bot.Send(msg)
 				sendCurrencyPairMenu(bot, chatID)
 			}
-		case 2: // Expecting interval
+		case StageAwaitingInterval: // Expecting interval
 			if contains(supportedIntervals, message.Text) {
 				state.Interval = message.Text
 				msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("Selected timeframe: %s\nYou can now run the prediction.", message.Text))
 				// Attach the main menu keyboard without sending welcome text
-				msg.ReplyMarkup = getMainMenuKeyboard()
+				msg.ReplyMarkup = getMainMenuKeyboard(state.Stage == StagePremium)
 				bot.Send(msg)
-				state.Stage = 0
+				state.Stage = StageInitial
 			} else {
 				msg := tgbotapi.NewMessage(chatID, "Invalid timeframe. Please choose from the list:")
 				bot.Send(msg)
@@ -172,7 +352,7 @@ func handleMessage(bot *tgbotapi.BotAPI, message *tgbotapi.Message, logger *zero
 			}
 		default:
 			msg := tgbotapi.NewMessage(chatID, "Please use the menu buttons to interact with the bot.")
-			msg.ReplyMarkup = getMainMenuKeyboard()
+			msg.ReplyMarkup = getMainMenuKeyboard(state.Stage == StagePremium)
 			bot.Send(msg)
 		}
 	}
@@ -188,7 +368,7 @@ func handleCallback(bot *tgbotapi.BotAPI, callback *tgbotapi.CallbackQuery, logg
 	state, exists := userStates[userID]
 	if !exists {
 		userStates[userID] = &UserState{
-			Stage:        0,
+			Stage:        StageInitial,
 			LastActivity: time.Now(),
 		}
 		state = userStates[userID]
@@ -211,7 +391,7 @@ func handleCallback(bot *tgbotapi.BotAPI, callback *tgbotapi.CallbackQuery, logg
 
 		// Show timeframe selection
 		sendTimeframeMenu(bot, chatID)
-		state.Stage = 2
+		state.Stage = StageAwaitingInterval
 	} else if strings.HasPrefix(data, "interval_") {
 		// Extract interval from callback data
 		interval := strings.TrimPrefix(data, "interval_")
@@ -219,31 +399,202 @@ func handleCallback(bot *tgbotapi.BotAPI, callback *tgbotapi.CallbackQuery, logg
 
 		// Send confirmation message with main menu keyboard but no welcome text
 		msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("Selected timeframe: %s\nYou can now run the prediction.", interval))
-		msg.ReplyMarkup = getMainMenuKeyboard()
+		msg.ReplyMarkup = getMainMenuKeyboard(state.Stage == StagePremium)
 		bot.Send(msg)
 
-		state.Stage = 0
+		state.Stage = StageInitial
 	} else if data == "run_prediction" {
 		if state.Symbol == "" || state.Interval == "" {
 			msg := tgbotapi.NewMessage(chatID, "Please select both currency pair and timeframe before running prediction.")
 			bot.Send(msg)
 			msg = tgbotapi.NewMessage(chatID, "What would you like to do?")
-			msg.ReplyMarkup = getMainMenuKeyboard()
+			msg.ReplyMarkup = getMainMenuKeyboard(state.Stage == StagePremium)
 			bot.Send(msg)
-			state.Stage = 0
+			state.Stage = StageInitial
 		} else {
-			runPrediction(bot, chatID, state, logger)
+			// Check subscription status
+			sub, err := db.GetSubscription(userID)
+			if err != nil {
+				logger.Error().Err(err).Int64("user_id", userID).Msg("Error retrieving subscription")
+				msg := tgbotapi.NewMessage(chatID, "Sorry, there was an error. Please try again later.")
+				bot.Send(msg)
+				return
+			}
+
+			if sub == nil || sub.Status != models.PaymentStatusAccepted {
+				// User needs to pay for subscription
+				msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("To run predictions for %s on %s timeframe, you need a premium subscription. The subscription costs $9.99 per month.", state.Symbol, state.Interval))
+				msg.ReplyMarkup = getPaymentKeyboard()
+				bot.Send(msg)
+				state.Stage = StageAwaitingPayment
+			} else {
+				// User has active subscription, run prediction
+				runPrediction(bot, chatID, state, logger)
+				// Update last predicted time
+				if err := db.UpdateLastPredicted(userID); err != nil {
+					logger.Error().Err(err).Int64("user_id", userID).Msg("Error updating last predicted time")
+				}
+			}
 		}
+	} else if data == "subscribe" {
+		// Handle subscription
+		if state.Symbol == "" || state.Interval == "" {
+			msg := tgbotapi.NewMessage(chatID, "Please select both currency pair and timeframe before subscribing.")
+			bot.Send(msg)
+			sendCurrencyPairMenu(bot, chatID)
+			state.Stage = StageAwaitingPair
+			return
+		}
+
+		// Send a loading message
+		loadingMsg := tgbotapi.NewMessage(chatID, "Creating payment session...")
+		sentMsg, err := bot.Send(loadingMsg)
+		if err != nil {
+			logger.Error().Err(err).Int64("user_id", userID).Msg("Error sending loading message")
+		}
+
+		// Create subscription in database
+		_, err = db.CreateSubscription(userID, chatID, state.Symbol, state.Interval)
+		if err != nil {
+			logger.Error().Err(err).Int64("user_id", userID).Msg("Error creating subscription")
+			msg := tgbotapi.NewMessage(chatID, "Sorry, there was an error. Please try again later.")
+			bot.Send(msg)
+			return
+		}
+
+		// Create Stripe checkout session
+		sessionID, paymentURL, err := stripeService.CreateCheckoutSession(userID, state.Symbol, state.Interval)
+		if err != nil {
+			logger.Error().Err(err).Int64("user_id", userID).Msg("Error creating Stripe session")
+			msg := tgbotapi.NewMessage(chatID, "Sorry, there was an error with the payment system. Please try again later.")
+			bot.Send(msg)
+			return
+		}
+
+		// Save payment info in user state
+		state.PaymentURL = paymentURL
+		state.SessionID = sessionID
+		state.Stage = StageAwaitingPayment
+
+		// Edit the loading message to provide payment instructions
+		editMsg := tgbotapi.NewEditMessageText(
+			chatID,
+			sentMsg.MessageID,
+			fmt.Sprintf("Please complete your payment to access premium predictions for %s on %s timeframe.", state.Symbol, state.Interval),
+		)
+
+		// Add payment URL button
+		editMsg.ReplyMarkup = &tgbotapi.InlineKeyboardMarkup{
+			InlineKeyboard: [][]tgbotapi.InlineKeyboardButton{
+				{
+					tgbotapi.NewInlineKeyboardButtonURL("Pay Now", paymentURL),
+				},
+			},
+		}
+
+		bot.Send(editMsg)
+
+		// Add follow-up message
+		followUp := tgbotapi.NewMessage(chatID, "After completing payment, return to this chat. Your subscription will be activated automatically.")
+		bot.Send(followUp)
 	} else if data == "main_menu" {
 		msg := tgbotapi.NewMessage(chatID, "What would you like to do?")
-		msg.ReplyMarkup = getMainMenuKeyboard()
+		msg.ReplyMarkup = getMainMenuKeyboard(state.Stage == StagePremium)
 		bot.Send(msg)
-		state.Stage = 0
+		state.Stage = StageInitial
+	}
+}
+
+// handlePaymentSuccess handles when a user returns after successful payment
+func handlePaymentSuccess(bot *tgbotapi.BotAPI, userID, chatID int64) {
+	// Check subscription status
+	sub, err := db.GetSubscription(userID)
+	if err != nil {
+		log.Printf("Error retrieving subscription: %v", err)
+		msg := tgbotapi.NewMessage(chatID, "Sorry, there was an error. Please try again later.")
+		bot.Send(msg)
+		return
+	}
+
+	if sub == nil {
+		msg := tgbotapi.NewMessage(chatID, "No subscription found. Please select a currency pair and timeframe to subscribe.")
+		bot.Send(msg)
+		return
+	}
+
+	// Check if we need to manually update the subscription status
+	// This is a fallback if the webhook hasn't updated the status yet
+	if sub.Status == models.PaymentStatusPending {
+		log.Printf("Payment success callback received, but subscription status is still pending. Manually updating for user %d", userID)
+
+		// Create a unique payment ID based on timestamp
+		paymentID := fmt.Sprintf("manual_%d_%d", userID, time.Now().Unix())
+
+		// Update subscription status directly
+		if err := db.UpdateSubscriptionStatus(userID, models.PaymentStatusAccepted, paymentID); err != nil {
+			log.Printf("Failed to manually update subscription status: %v", err)
+			msg := tgbotapi.NewMessage(chatID, "Thank you for your payment! Your subscription is being processed and will be activated shortly. If it's not active in a few minutes, please contact support.")
+			bot.Send(msg)
+			return
+		}
+
+		// Reload subscription data after update
+		sub, err = db.GetSubscription(userID)
+		if err != nil {
+			log.Printf("Error retrieving updated subscription: %v", err)
+		}
+
+		// Notify about manual activation
+		msg := tgbotapi.NewMessage(chatID, "Thank you for your payment! Your subscription has been activated.")
+		bot.Send(msg)
+	} else if sub.Status == models.PaymentStatusAccepted {
+		// Subscription is already active
+		daysLeft := int(sub.ExpiresAt.Sub(time.Now()).Hours() / 24)
+		msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("Your subscription is active! You can now run predictions for %s on %s timeframe. Your subscription will expire in %d days.", sub.CurrencyPair, sub.Timeframe, daysLeft))
+		msg.ReplyMarkup = getMainMenuKeyboard(true)
+		bot.Send(msg)
+	} else {
+		// Unexpected status
+		msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("Your subscription status is: %s. Please contact support if you believe this is an error.", sub.Status))
+		bot.Send(msg)
+	}
+
+	// Update user state regardless of the status
+	state, exists := userStates[userID]
+	if exists {
+		state.Stage = StagePremium
+		state.Symbol = sub.CurrencyPair
+		state.Interval = sub.Timeframe
+	}
+}
+
+// handlePaymentCancel handles when a user returns after cancelling payment
+func handlePaymentCancel(bot *tgbotapi.BotAPI, userID, chatID int64) {
+	msg := tgbotapi.NewMessage(chatID, "Your payment was cancelled. You can try again later when you're ready.")
+	msg.ReplyMarkup = getMainMenuKeyboard(false)
+	bot.Send(msg)
+
+	// Update user state
+	state, exists := userStates[userID]
+	if exists {
+		state.Stage = StageInitial
 	}
 }
 
 // getMainMenuKeyboard returns the main menu keyboard
-func getMainMenuKeyboard() tgbotapi.ReplyKeyboardMarkup {
+func getMainMenuKeyboard(isPremium bool) tgbotapi.ReplyKeyboardMarkup {
+	if isPremium {
+		return tgbotapi.NewReplyKeyboard(
+			tgbotapi.NewKeyboardButtonRow(
+				tgbotapi.NewKeyboardButton("Select Currency Pair"),
+				tgbotapi.NewKeyboardButton("Select Timeframe"),
+			),
+			tgbotapi.NewKeyboardButtonRow(
+				tgbotapi.NewKeyboardButton("Run Prediction"),
+			),
+		)
+	}
+
 	return tgbotapi.NewReplyKeyboard(
 		tgbotapi.NewKeyboardButtonRow(
 			tgbotapi.NewKeyboardButton("Select Currency Pair"),
@@ -255,11 +606,16 @@ func getMainMenuKeyboard() tgbotapi.ReplyKeyboardMarkup {
 	)
 }
 
-// sendMainMenu displays the main menu buttons with welcome message
-func sendMainMenu(bot *tgbotapi.BotAPI, chatID int64) {
-	msg := tgbotapi.NewMessage(chatID, "Welcome to the Forex Predictor Bot! What would you like to do?")
-	msg.ReplyMarkup = getMainMenuKeyboard()
-	bot.Send(msg)
+// getPaymentKeyboard returns the keyboard for payment options
+func getPaymentKeyboard() tgbotapi.InlineKeyboardMarkup {
+	return tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("Subscribe ($9.99/month)", "subscribe"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("← Back to Main Menu", "main_menu"),
+		),
+	)
 }
 
 // sendCurrencyPairMenu displays currency pair selection as inline buttons

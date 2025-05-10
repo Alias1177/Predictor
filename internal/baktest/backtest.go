@@ -1,13 +1,13 @@
 package baktest
 
 import (
-	"chi/Predictor/config"
-	"chi/Predictor/internal/analyze"
-	"chi/Predictor/internal/anomaly"
-	"chi/Predictor/internal/calculate"
-	"chi/Predictor/internal/utils"
+	"github.com/Alias1177/Predictor/config"
+	"github.com/Alias1177/Predictor/internal/analyze"
+	"github.com/Alias1177/Predictor/internal/anomaly"
+	"github.com/Alias1177/Predictor/internal/calculate"
+	"github.com/Alias1177/Predictor/internal/utils"
 
-	"chi/Predictor/models"
+	"github.com/Alias1177/Predictor/models"
 	"context"
 	"fmt"
 	"math"

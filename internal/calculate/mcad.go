@@ -1,6 +1,6 @@
 package calculate
 
-import "chi/Predictor/models"
+import "github.com/Alias1177/Predictor/models"
 
 func calculateMACD(candles []models.Candle, fastPeriod, slowPeriod, signalPeriod int) (float64, float64, float64) {
 	// Extract close prices

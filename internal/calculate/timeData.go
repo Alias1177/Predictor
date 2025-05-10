@@ -1,11 +1,12 @@
 package calculate
 
 import (
-	"chi/Predictor/config"
-	"chi/Predictor/models"
 	"context"
 	"fmt"
 	"sync"
+
+	"github.com/Alias1177/Predictor/config"
+	"github.com/Alias1177/Predictor/models"
 )
 
 // getMultiTimeframeData fetches candle data for multiple timeframes

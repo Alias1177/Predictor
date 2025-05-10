@@ -1,6 +1,6 @@
 package calculate
 
-import "chi/Predictor/models"
+import "github.com/Alias1177/Predictor/models"
 
 func calculateOBV(candles []models.Candle) float64 {
 	if len(candles) < 2 {

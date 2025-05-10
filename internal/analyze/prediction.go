@@ -1,8 +1,8 @@
 package analyze
 
 import (
-	"chi/Predictor/internal/patterns"
-	"chi/Predictor/models"
+	"github.com/Alias1177/Predictor/internal/patterns"
+	"github.com/Alias1177/Predictor/models"
 	"fmt"
 	"math"
 )

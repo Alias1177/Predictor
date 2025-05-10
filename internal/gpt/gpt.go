@@ -1,7 +1,7 @@
 package gpt
 
 import (
-	"chi/Predictor/models"
+	"github.com/Alias1177/Predictor/models"
 	"context"
 	"fmt"
 	"github.com/rs/zerolog/log"

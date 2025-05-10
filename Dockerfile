@@ -1,27 +1,36 @@
-FROM golang:1.24-alpine
+FROM golang:latest AS builder
 
-# Установка необходимых пакетов
-RUN apk add --no-cache git tzdata ca-certificates
-
-# Создание рабочей директории
 WORKDIR /app
 
-# Копирование файлов проекта
-COPY . .
+# Установка необходимых пакетов
+RUN apk update && apk add --no-cache gcc musl-dev || apt-get update && apt-get install -y gcc libc6-dev
 
-# Загрузка зависимостей
+# Копируем go.mod и go.sum
+COPY go.mod go.sum ./
 RUN go mod download
 
-# Сборка основного приложения и бота
-RUN go build -o predictor cmd/main.go && \
-    go build -o tgbot cmd/tgbot/main.go
+# Копируем весь код
+COPY . .
 
-# Определение переменной для выбора запуска
-ENV APP_TYPE=app
+# Сборка Telegram-бота
+RUN CGO_ENABLED=1 GOOS=linux go build -a -o tgbot cmd/tgbot/main.go
 
-# Скрипт запуска
-CMD if [ "$APP_TYPE" = "bot" ]; then \
-        /app/tgbot; \
-    else \
-        /app/predictor; \
-    fi
+# Сборка webhook-сервера
+RUN CGO_ENABLED=1 GOOS=linux go build -a -o webhook cmd/stripe_webhook/main.go
+
+# Финальный образ для Telegram-бота
+FROM alpine:latest AS tgbot
+RUN apk add --no-cache ca-certificates libc6-compat tzdata
+WORKDIR /app
+COPY --from=builder /app/tgbot .
+COPY .env .
+CMD ["./tgbot"]
+
+# Финальный образ для webhook-сервера
+FROM alpine:latest AS webhook
+RUN apk add --no-cache ca-certificates libc6-compat tzdata
+WORKDIR /app
+COPY --from=builder /app/webhook .
+COPY .env .
+EXPOSE 8080
+CMD ["./webhook"]
