@@ -8,6 +8,7 @@ import (
 	"github.com/Alias1177/Predictor/internal/utils"
 
 	"github.com/Alias1177/Predictor/models"
+
 	"context"
 	"fmt"
 	"math"

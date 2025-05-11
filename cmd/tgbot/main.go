@@ -16,7 +16,6 @@ import (
 	"github.com/Alias1177/Predictor/internal/anomaly"
 	"github.com/Alias1177/Predictor/internal/calculate"
 	"github.com/Alias1177/Predictor/internal/database"
-	"github.com/Alias1177/Predictor/internal/gpt"
 	"github.com/Alias1177/Predictor/internal/payment"
 	"github.com/Alias1177/Predictor/models"
 
@@ -785,27 +784,27 @@ func runPrediction(bot *tgbotapi.BotAPI, chatID int64, state *UserState, logger 
 	resultMsg.ParseMode = "Markdown"
 	bot.Send(resultMsg)
 
-	// Try to get prediction from OpenAI if API key is available
-	if cfg.OpenAIAPIKey != "" {
-		aiPrompt := gpt.FormatPrompt(candles, cfg.Symbol)
-		aiMsg := tgbotapi.NewMessage(chatID, "Getting AI analysis...")
-		sentAiMsg, _ := bot.Send(aiMsg)
-
-		// This is asynchronous so user doesn't have to wait
-		go func() {
-			// Create a buffer to capture GPT's output
-			aiOutput := captureGPTOutput(cfg.OpenAIAPIKey, aiPrompt)
-
-			// Update the message with AI prediction
-			editAiMsg := tgbotapi.NewEditMessageText(
-				chatID,
-				sentAiMsg.MessageID,
-				fmt.Sprintf("*AI Analysis:*\n\n%s", aiOutput),
-			)
-			editAiMsg.ParseMode = "Markdown"
-			bot.Send(editAiMsg)
-		}()
-	}
+	//// Try to get prediction from OpenAI if API key is available
+	//if cfg.OpenAIAPIKey != "" {
+	//	aiPrompt := gpt.FormatPrompt(candles, cfg.Symbol)
+	//	aiMsg := tgbotapi.NewMessage(chatID, "Getting AI analysis...")
+	//	sentAiMsg, _ := bot.Send(aiMsg)
+	//
+	//	// This is asynchronous so user doesn't have to wait
+	//	go func() {
+	//		// Create a buffer to capture GPT's output
+	//		aiOutput := captureGPTOutput(cfg.OpenAIAPIKey, aiPrompt)
+	//
+	//		// Update the message with AI prediction
+	//		editAiMsg := tgbotapi.NewEditMessageText(
+	//			chatID,
+	//			sentAiMsg.MessageID,
+	//			fmt.Sprintf("*AI Analysis:*\n\n%s", aiOutput),
+	//		)
+	//		editAiMsg.ParseMode = "Markdown"
+	//		bot.Send(editAiMsg)
+	//	}()
+	//}
 }
 
 // Helper function to get integer environment variables
@@ -844,25 +843,25 @@ func getEnvBool(key string, defaultVal bool) bool {
 }
 
 // captureGPTOutput captures the output from the OpenAI API
-func captureGPTOutput(apiKey, prompt string) string {
-	// This is a simple wrapper around the gpt package that captures the output
-	client := &gptClient{}
-	return client.askGPT(apiKey, prompt)
-}
+//func captureGPTOutput(apiKey, prompt string) string {
+//	// This is a simple wrapper around the gpt package that captures the output
+//	client := &gptClient{}
+//	return client.askGPT(apiKey, prompt)
+//}
 
 // gptClient is a simple wrapper for gpt.AskGPT that captures the output
 type gptClient struct{}
 
-func (g *gptClient) askGPT(apiKey, prompt string) string {
-	// Adapted from your gpt.AskGPT function to return the result as a string
-	// instead of printing it to the console
-	ctx := context.Background()
-	result, err := gpt.ProcessGPT(ctx, apiKey, prompt)
-	if err != nil {
-		return "Error getting AI prediction: " + err.Error()
-	}
-	return result
-}
+//func (g *gptClient) askGPT(apiKey, prompt string) string {
+//	// Adapted from your gpt.AskGPT function to return the result as a string
+//	// instead of printing it to the console
+//	ctx := context.Background()
+//	result, err := gpt.ProcessGPT(ctx, apiKey, prompt)
+//	if err != nil {
+//		return "Error getting AI prediction: " + err.Error()
+//	}
+//	return result
+//}
 
 // contains checks if a string exists in a slice
 func contains(slice []string, item string) bool {

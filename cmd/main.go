@@ -1,15 +1,14 @@
 package main
 
 import (
+	"context"
+	"fmt"
 	"github.com/Alias1177/Predictor/config"
 	"github.com/Alias1177/Predictor/internal/analyze"
 	"github.com/Alias1177/Predictor/internal/anomaly"
 	"github.com/Alias1177/Predictor/internal/baktest"
 	"github.com/Alias1177/Predictor/internal/calculate"
-	"github.com/Alias1177/Predictor/internal/gpt"
 	"github.com/Alias1177/Predictor/models"
-	"context"
-	"fmt"
 	"github.com/joho/godotenv"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -302,6 +301,6 @@ func main() {
 	fmt.Printf("Prediction: %s (conf=%s score=%.2f)\nFactors: %v\n", direction, confidence, score, factors)
 
 	// 8) Формируем prompt и шлём в OpenAI
-	prompt := gpt.FormatPrompt(candles, cfg.Symbol)
-	gpt.AskGPT(cfg.OpenAIAPIKey, prompt) // использует cfg.OpenAIAPIKey внутри
+	//prompt := gpt.FormatPrompt(candles, cfg.Symbol)
+	//gpt.AskGPT(cfg.OpenAIAPIKey, prompt) // использует cfg.OpenAIAPIKey внутри
 }
