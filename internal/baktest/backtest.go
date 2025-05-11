@@ -1,6 +1,9 @@
 package baktest
 
 import (
+	"math/rand"
+	"sort"
+
 	"github.com/Alias1177/Predictor/config"
 	"github.com/Alias1177/Predictor/internal/analyze"
 	"github.com/Alias1177/Predictor/internal/anomaly"
@@ -85,7 +88,7 @@ func RunBacktest(ctx context.Context, client *config.Client, config *models.Conf
 		}
 
 		// Генерируем прогноз
-		direction, confidence, score, factors := analyze.EnhancedPrediction(
+		direction, confidence, score, factors, _ := analyze.EnhancedPrediction(
 			testWindow, indicators, mtfData, regime, anomaly, config)
 
 		// Создаем запись о прогнозе
@@ -306,4 +309,124 @@ func RunBacktest(ctx context.Context, client *config.Client, config *models.Conf
 	results.TotalReturnPercent = ((finalBalance - initialBalance) / initialBalance) * 100
 
 	return results, nil
+}
+
+func MonteCarloSimulation(results *models.BacktestResults, simulations int) *models.MonteCarloResults {
+	if len(results.DetailedResults) < 10 {
+		return nil
+	}
+
+	// Извлекаем результаты сделок для симуляции
+	var trades []float64
+	for _, result := range results.DetailedResults {
+		if result.WasCorrect {
+			trades = append(trades, results.AverageGain)
+		} else {
+			trades = append(trades, -results.AverageLoss)
+		}
+	}
+
+	// Инициализируем генератор случайных чисел
+	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+
+	// Запускаем симуляции
+	simulationResults := make([]models.SimulationResult, simulations)
+
+	// Ограничиваем количество сохраняемых кривых капитала для экономии памяти
+	const maxStoredCurves = 10
+
+	for sim := 0; sim < simulations; sim++ {
+		// Создаем копию сделок и перемешиваем
+		shuffledTrades := make([]float64, len(trades))
+		copy(shuffledTrades, trades)
+		rng.Shuffle(len(shuffledTrades), func(i, j int) {
+			shuffledTrades[i], shuffledTrades[j] = shuffledTrades[j], shuffledTrades[i]
+		})
+
+		// Отслеживаем кривую капитала
+		initialBalance := 10000.0
+		balance := initialBalance
+		equity := []float64{initialBalance}
+		maxBalance := initialBalance
+		maxDrawdown := 0.0
+
+		// Применяем перемешанные сделки
+		for _, trade := range shuffledTrades {
+			balance += trade
+			equity = append(equity, balance)
+
+			if balance > maxBalance {
+				maxBalance = balance
+			}
+
+			currentDrawdown := 0.0
+			if maxBalance > 0 {
+				currentDrawdown = (maxBalance - balance) / maxBalance
+			}
+			if currentDrawdown > maxDrawdown {
+				maxDrawdown = currentDrawdown
+			}
+		}
+
+		// Рассчитываем метрики
+		finalBalance := balance
+		totalReturn := 0.0
+		if initialBalance > 0 {
+			totalReturn = (finalBalance - initialBalance) / initialBalance
+		}
+
+		// Сохраняем кривую капитала только для ограниченного числа симуляций
+		var equityCurve []float64
+		if sim < maxStoredCurves {
+			equityCurve = equity
+		}
+
+		simulationResults[sim] = models.SimulationResult{
+			FinalBalance: finalBalance,
+			TotalReturn:  totalReturn * 100, // В процентах
+			MaxDrawdown:  maxDrawdown * 100, // В процентах
+			EquityCurve:  equityCurve,
+		}
+	}
+
+	// Сортируем результаты по общей доходности
+	sort.Slice(simulationResults, func(i, j int) bool {
+		return simulationResults[i].TotalReturn < simulationResults[j].TotalReturn
+	})
+
+	// Рассчитываем процентили
+	percentileResults := models.MonteCarloPercentiles{
+		Worst:  simulationResults[0].TotalReturn,
+		P10:    simulationResults[simulations/10].TotalReturn,
+		P25:    simulationResults[simulations/4].TotalReturn,
+		Median: simulationResults[simulations/2].TotalReturn,
+		P75:    simulationResults[simulations*3/4].TotalReturn,
+		P90:    simulationResults[simulations*9/10].TotalReturn,
+		Best:   simulationResults[simulations-1].TotalReturn,
+	}
+
+	// Рассчитываем среднюю просадку
+	sumDrawdown := 0.0
+	for _, sim := range simulationResults {
+		sumDrawdown += sim.MaxDrawdown
+	}
+	averageDrawdown := sumDrawdown / float64(simulations)
+
+	return &models.MonteCarloResults{
+		Simulations:         simulations,
+		Returns:             percentileResults,
+		AverageDrawdown:     averageDrawdown,
+		WorstDrawdown:       simulationResults[simulations-1].MaxDrawdown,
+		ProbabilityOfProfit: float64(countPositiveReturns(simulationResults)) / float64(simulations) * 100,
+	}
+}
+
+func countPositiveReturns(results []models.SimulationResult) int {
+	count := 0
+	for _, r := range results {
+		if r.TotalReturn > 0 {
+			count++
+		}
+	}
+	return count
 }

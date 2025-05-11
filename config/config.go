@@ -1,19 +1,20 @@
 package config
 
 import (
-	"github.com/Alias1177/Predictor/models"
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/cenkalti/backoff/v4"
-	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
-	"golang.org/x/time/rate"
 	"io"
 	"net/http"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/Alias1177/Predictor/models"
+	"github.com/cenkalti/backoff/v4"
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
+	"golang.org/x/time/rate"
 )
 
 type Client struct {

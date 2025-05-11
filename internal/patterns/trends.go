@@ -1,8 +1,9 @@
 package patterns
 
 import (
-	"github.com/Alias1177/Predictor/models"
 	"math"
+
+	"github.com/Alias1177/Predictor/models"
 )
 
 func IdentifyTrends(candles []models.Candle, ema float64) []string {

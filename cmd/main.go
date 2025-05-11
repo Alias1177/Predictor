@@ -3,6 +3,10 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
+	"sort"
+	"strconv"
+
 	"github.com/Alias1177/Predictor/config"
 	"github.com/Alias1177/Predictor/internal/analyze"
 	"github.com/Alias1177/Predictor/internal/anomaly"
@@ -12,9 +16,6 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-	"os"
-	"sort"
-	"strconv"
 )
 
 func init() {
@@ -297,7 +298,7 @@ func main() {
 	regime := anomaly.EnhancedMarketRegimeClassification(candles)
 
 	// 7) Генерируем прогноз
-	direction, confidence, score, factors := analyze.EnhancedPrediction(candles, indicators, mtfData, regime, anomaly2, &cfg)
+	direction, confidence, score, factors, _ := analyze.EnhancedPrediction(candles, indicators, mtfData, regime, anomaly2, &cfg)
 	fmt.Printf("Prediction: %s (conf=%s score=%.2f)\nFactors: %v\n", direction, confidence, score, factors)
 
 	// 8) Формируем prompt и шлём в OpenAI

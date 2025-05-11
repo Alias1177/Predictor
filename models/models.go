@@ -138,17 +138,25 @@ type BacktestResults struct {
 	AverageGainPercent      float64            `json:"average_gain_percent"`
 	AverageLossPercent      float64            `json:"average_loss_percent"`
 	TotalReturnPercent      float64            `json:"total_return_percent"`
+
+	DivergenceStats struct {
+		BullishCorrect   int `json:"bullish_correct"`
+		BullishIncorrect int `json:"bullish_incorrect"`
+		BearishCorrect   int `json:"bearish_correct"`
+		BearishIncorrect int `json:"bearish_incorrect"`
+	} `json:"divergence_stats"`
 }
 
 // Client is a wrapper for HTTP client with rate limiting
 
 // Структура для управления риском
 type PositionSizingResult struct {
-	PositionSize    float64 `json:"position_size"`
-	StopLoss        float64 `json:"stop_loss"`
-	TakeProfit      float64 `json:"take_profit"`
-	RiskRewardRatio float64 `json:"risk_reward_ratio"`
-	AccountRisk     float64 `json:"account_risk"`
+	PositionSize      float64            `json:"position_size"`
+	StopLoss          float64            `json:"stop_loss"`
+	TakeProfit        float64            `json:"take_profit"`
+	RiskRewardRatio   float64            `json:"risk_reward_ratio"`
+	AccountRisk       float64            `json:"account_risk"`
+	AdditionalTargets map[string]float64 `json:"additional_targets,omitempty"`
 }
 
 type Anomaly struct {
@@ -185,4 +193,90 @@ type UserSubscription struct {
 	CurrencyPair  string    `json:"currency_pair"` // Selected currency pair
 	Timeframe     string    `json:"timeframe"`     // Selected timeframe
 	LastPredicted time.Time `json:"last_predicted,omitempty"`
+}
+
+// OrderFlow представляет анализ потока ордеров
+type OrderFlow struct {
+	Direction       string  `json:"direction"`
+	Strength        float64 `json:"strength"`
+	BuyingPressure  float64 `json:"buying_pressure"`
+	SellingPressure float64 `json:"selling_pressure"`
+	DeltaPercentage float64 `json:"delta_percentage"`
+	IsClimaxVolume  bool    `json:"is_climax_volume"`
+	IsExhaustion    bool    `json:"is_exhaustion"`
+}
+
+// PatternPoint представляет точку в гармоническом паттерне
+type PatternPoint struct {
+	Index int     `json:"index"`
+	Price float64 `json:"price"`
+}
+
+// HarmonicPattern представляет гармонический паттерн
+type HarmonicPattern struct {
+	Type              string                  `json:"type"`
+	Direction         string                  `json:"direction"`
+	Points            map[string]PatternPoint `json:"points"`
+	Ratios            map[string]float64      `json:"ratios"`
+	CompletionIndex   int                     `json:"completion_index"`
+	PotentialReversal bool                    `json:"potential_reversal"`
+}
+
+// SimulationResult представляет результат одной симуляции Монте-Карло
+type SimulationResult struct {
+	FinalBalance float64   `json:"final_balance"`
+	TotalReturn  float64   `json:"total_return"`
+	MaxDrawdown  float64   `json:"max_drawdown"`
+	EquityCurve  []float64 `json:"equity_curve,omitempty"`
+}
+
+// MonteCarloPercentiles представляет процентили результатов симуляций
+type MonteCarloPercentiles struct {
+	Worst  float64 `json:"worst"`
+	P10    float64 `json:"p10"`
+	P25    float64 `json:"p25"`
+	Median float64 `json:"median"`
+	P75    float64 `json:"p75"`
+	P90    float64 `json:"p90"`
+	Best   float64 `json:"best"`
+}
+
+// MonteCarloResults представляет общие результаты симуляции Монте-Карло
+type MonteCarloResults struct {
+	Simulations         int                   `json:"simulations"`
+	Returns             MonteCarloPercentiles `json:"returns"`
+	AverageDrawdown     float64               `json:"average_drawdown"`
+	WorstDrawdown       float64               `json:"worst_drawdown"`
+	ProbabilityOfProfit float64               `json:"probability_of_profit"`
+}
+
+// DivergencePoint представляет точку в дивергенции
+type DivergencePoint struct {
+	Index int     `json:"index"`
+	Value float64 `json:"value"`
+}
+
+// Divergence представляет дивергенцию между ценой и индикатором
+type Divergence struct {
+	Type            string            `json:"type"`      // REGULAR или HIDDEN
+	Direction       string            `json:"direction"` // BULLISH или BEARISH
+	PricePoints     []DivergencePoint `json:"price_points"`
+	IndicatorPoints []DivergencePoint `json:"indicator_points"`
+	Indicator       string            `json:"indicator"`       // Какой индикатор (RSI, MACD и т.д.)
+	SignalStrength  float64           `json:"signal_strength"` // Сила сигнала от 0 до 1
+}
+
+// TradingSuggestion содержит конкретные рекомендации по торговле
+type TradingSuggestion struct {
+	Action          string   `json:"action"`            // BUY, SELL, NO_TRADE
+	Direction       string   `json:"direction"`         // UP, DOWN, NEUTRAL
+	Confidence      string   `json:"confidence"`        // HIGH, MEDIUM, LOW
+	Score           float64  `json:"score"`             // Числовой показатель уверенности
+	EntryPrice      float64  `json:"entry_price"`       // Рекомендуемая цена входа
+	StopLoss        float64  `json:"stop_loss"`         // Уровень стоп-лосса
+	TakeProfit      float64  `json:"take_profit"`       // Уровень тейк-профита
+	PositionSize    float64  `json:"position_size"`     // Рекомендуемый размер позиции
+	RiskRewardRatio float64  `json:"risk_reward_ratio"` // Соотношение риск/доходность
+	AccountRisk     float64  `json:"account_risk"`      // Процент риска от размера счета
+	Factors         []string `json:"factors"`           // Факторы, повлиявшие на решение
 }

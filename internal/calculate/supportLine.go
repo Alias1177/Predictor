@@ -1,9 +1,10 @@
 package calculate
 
 import (
-	"github.com/Alias1177/Predictor/models"
 	"math"
 	"sort"
+
+	"github.com/Alias1177/Predictor/models"
 )
 
 func identifySupportResistance(candles []models.Candle) ([]float64, []float64) {

@@ -1,13 +1,15 @@
 package anomaly
 
 import (
+	"math"
+
 	"github.com/Alias1177/Predictor/internal/utils"
 	"github.com/Alias1177/Predictor/models"
-	"math"
 )
 
-func EnhancedMarketRegimeClassification(candles []models.Candle) *models.MarketRegime {
-	if len(candles) < 20 {
+// MarketStateHMM реализует упрощенную скрытую марковскую модель для определения режима рынка
+func MarketStateHMM(candles []models.Candle, windowSize int) *models.MarketRegime {
+	if len(candles) < windowSize*2 {
 		return &models.MarketRegime{
 			Type:             "UNKNOWN",
 			Strength:         0,
@@ -19,144 +21,143 @@ func EnhancedMarketRegimeClassification(candles []models.Candle) *models.MarketR
 		}
 	}
 
-	// Initialize market regime
+	// Рассчитываем последовательности доходности
+	returns := make([]float64, len(candles)-1)
+	for i := 1; i < len(candles); i++ {
+		returns[i-1] = (candles[i].Close - candles[i-1].Close) / candles[i-1].Close
+	}
+
+	// Рассчитываем волатильность в скользящих окнах
+	volatilities := make([]float64, len(returns)-windowSize+1)
+	for i := 0; i <= len(returns)-windowSize; i++ {
+		windowReturns := returns[i : i+windowSize]
+		volatilities[i] = calculateVolatility(windowReturns)
+	}
+
+	// Рассчитываем среднее и стандартное отклонение волатильности для определения режимов
+	meanVol, stdVol := calculateMeanStd(volatilities)
+
+	// Текущая волатильность (последнее окно)
+	currentVol := volatilities[len(volatilities)-1]
+
+	// Определяем состояние рынка
 	regime := &models.MarketRegime{
-		Type:             "UNKNOWN",
-		Strength:         0,
-		Direction:        "NEUTRAL",
-		VolatilityLevel:  "NORMAL",
-		MomentumStrength: 0,
-		LiquidityRating:  "NORMAL",
-		PriceStructure:   "UNKNOWN",
+		LiquidityRating: "NORMAL",
+		PriceStructure:  "UNKNOWN",
 	}
 
-	// Calculate key indicators
-	adx, plusDI, minusDI := utils.CalculateADX(candles, 14)
-	atr10 := utils.CalculateATR(candles, 10)
-	atr30 := utils.CalculateATR(candles, 30)
-
-	// Volatility analysis
-	volatilityRatio := atr10 / atr30
-	if volatilityRatio > 1.5 {
+	if currentVol > meanVol+stdVol*1.5 {
+		regime.Type = "VOLATILE"
 		regime.VolatilityLevel = "HIGH"
-	} else if volatilityRatio < 0.7 {
+		regime.Strength = math.Min((currentVol-meanVol)/stdVol/3, 1.0)
+	} else if currentVol < meanVol-stdVol*0.5 {
+		// Низкая волатильность может указывать на флэт или предпробойное состояние
+		regime.Type = "RANGING"
 		regime.VolatilityLevel = "LOW"
-	}
-
-	// Momentum analysis
-	var momentumScore float64
-	current := candles[len(candles)-1].Close
-	prev5 := candles[len(candles)-6].Close
-	prev10 := candles[len(candles)-11].Close
-
-	// Get index for prev20 carefully to avoid out of range error
-	prev20Idx := len(candles) - 21
-	var prev20 float64
-	if prev20Idx >= 0 {
-		prev20 = candles[prev20Idx].Close
+		regime.Strength = math.Min((meanVol-currentVol)/stdVol, 1.0)
 	} else {
-		// Fall back to earliest available candle
-		prev20 = candles[0].Close
-	}
-
-	// Weight shorter term changes more heavily
-	momentum5 := (current - prev5) / prev5
-	momentum10 := (current - prev10) / prev10
-	momentum20 := (current - prev20) / prev20
-
-	// Weighted momentum score
-	momentumScore = (momentum5 * 0.5) + (momentum10 * 0.3) + (momentum20 * 0.2)
-	regime.MomentumStrength = math.Min(math.Abs(momentumScore)*10, 1.0)
-
-	if momentumScore > 0 {
-		regime.Direction = "BULLISH"
-	} else if momentumScore < 0 {
-		regime.Direction = "BEARISH"
-	}
-
-	// ADX-based trend analysis
-	if adx > 25 {
-		if plusDI > minusDI {
+		// Нормальная волатильность часто указывает на тренд
+		adx, plusDI, minusDI := utils.CalculateADX(candles, windowSize)
+		if adx > 25 {
 			regime.Type = "TRENDING"
-			regime.PriceStructure = "TRENDING_UP"
-		} else {
-			regime.Type = "TRENDING"
-			regime.PriceStructure = "TRENDING_DOWN"
-		}
-
-		// Calculate trend strength
-		regime.Strength = math.Min(adx/50.0, 1.0)
-	} else {
-		// Check for range-bound market
-		highestHigh := 0.0
-		lowestLow := 999999.0
-
-		for i := len(candles) - 20; i < len(candles); i++ {
-			if candles[i].High > highestHigh {
-				highestHigh = candles[i].High
-			}
-			if candles[i].Low < lowestLow {
-				lowestLow = candles[i].Low
-			}
-		}
-
-		rangeHeight := highestHigh - lowestLow
-		normalizedRange := rangeHeight / atr10
-
-		if normalizedRange < 5.0 {
-			regime.Type = "RANGING"
-			regime.PriceStructure = "RANGE_BOUND"
-
-			// Strength inversely related to ADX
-			regime.Strength = math.Min((30.0-adx)/30.0, 1.0)
-		} else {
-			// Check for choppy market conditions
-			var directionalChanges int
-			prevDirection := candles[len(candles)-20].Close > candles[len(candles)-21].Close
-
-			for i := len(candles) - 19; i < len(candles); i++ {
-				currentDirection := candles[i].Close > candles[i-1].Close
-				if currentDirection != prevDirection {
-					directionalChanges++
-					prevDirection = currentDirection
-				}
-			}
-
-			if directionalChanges > 8 {
-				regime.Type = "CHOPPY"
-				regime.Strength = math.Min(float64(directionalChanges)/15.0, 1.0)
-			} else if volatilityRatio > 1.8 {
-				regime.Type = "VOLATILE"
-				regime.Strength = math.Min(volatilityRatio/3.0, 1.0)
-
-				if momentumScore > 0.02 {
-					regime.PriceStructure = "BREAKOUT"
-				} else if momentumScore < -0.02 {
-					regime.PriceStructure = "BREAKDOWN"
-				}
+			regime.Strength = math.Min(adx/50.0, 1.0)
+			if plusDI > minusDI {
+				regime.Direction = "BULLISH"
+				regime.PriceStructure = "TRENDING_UP"
 			} else {
-				// Default to mild trending
-				regime.Type = "TRENDING"
-				regime.Strength = math.Min(adx/30.0, 0.7) // Cap at 0.7 for mild trends
-
-				if plusDI > minusDI {
-					regime.PriceStructure = "TRENDING_UP"
-				} else {
-					regime.PriceStructure = "TRENDING_DOWN"
-				}
+				regime.Direction = "BEARISH"
+				regime.PriceStructure = "TRENDING_DOWN"
 			}
+		} else {
+			regime.Type = "CHOPPY"
+			regime.Strength = 0.5
+			regime.Direction = "NEUTRAL"
 		}
 	}
 
-	// Liquidity analysis based on average true range relative to price
-	avgPrice := (current + prev5 + prev10) / 3
+	// Определяем силу импульса на основе недавнего движения цены
+	currentPrice := candles[len(candles)-1].Close
+	prevPrice := candles[len(candles)-windowSize].Close
+	momentumPct := (currentPrice - prevPrice) / prevPrice
+	regime.MomentumStrength = math.Min(math.Abs(momentumPct)*50, 1.0)
+
+	if momentumPct > 0 {
+		if regime.Direction == "NEUTRAL" {
+			regime.Direction = "BULLISH"
+		}
+	} else if momentumPct < 0 {
+		if regime.Direction == "NEUTRAL" {
+			regime.Direction = "BEARISH"
+		}
+	}
+
+	// Анализ ликвидности на основе ATR относительно цены
+	avgPrice := (currentPrice + prevPrice) / 2
+	atr10 := utils.CalculateATR(candles, 10)
 	liquidityRatio := atr10 / avgPrice
 
-	if liquidityRatio > 0.005 { // 0.5% volatility relative to price
+	if liquidityRatio > 0.005 { // 0.5% волатильность относительно цены
 		regime.LiquidityRating = "LOW"
-	} else if liquidityRatio < 0.001 { // 0.1% volatility relative to price
+	} else if liquidityRatio < 0.001 { // 0.1% волатильность относительно цены
 		regime.LiquidityRating = "HIGH"
 	}
 
 	return regime
+}
+
+// Оставляем существующую функцию EnhancedMarketRegimeClassification для совместимости
+func EnhancedMarketRegimeClassification(candles []models.Candle) *models.MarketRegime {
+	// Используем новую реализацию для существующего интерфейса
+	return MarketStateHMM(candles, 14)
+}
+
+func calculateVolatility(returns []float64) float64 {
+	if len(returns) == 0 {
+		return 0
+	}
+
+	// Рассчитываем стандартное отклонение доходностей
+	mean := 0.0
+	for _, r := range returns {
+		mean += r
+	}
+	mean /= float64(len(returns))
+
+	variance := 0.0
+	for _, r := range returns {
+		variance += math.Pow(r-mean, 2)
+	}
+
+	if len(returns) <= 1 {
+		return 0
+	}
+
+	variance /= float64(len(returns) - 1)
+
+	return math.Sqrt(variance)
+}
+
+func calculateMeanStd(values []float64) (float64, float64) {
+	if len(values) == 0 {
+		return 0, 0
+	}
+
+	mean := 0.0
+	for _, v := range values {
+		mean += v
+	}
+	mean /= float64(len(values))
+
+	if len(values) <= 1 {
+		return mean, 0 // Невозможно вычислить std для одного значения
+	}
+
+	variance := 0.0
+	for _, v := range values {
+		variance += math.Pow(v-mean, 2)
+	}
+	// Используем n-1 для несмещенной оценки
+	variance /= float64(len(values) - 1)
+
+	return mean, math.Sqrt(variance)
 }

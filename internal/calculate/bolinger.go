@@ -1,8 +1,9 @@
 package calculate
 
 import (
-	"github.com/Alias1177/Predictor/models"
 	"math"
+
+	"github.com/Alias1177/Predictor/models"
 )
 
 // calculateBollingerBands calculates Bollinger Bands

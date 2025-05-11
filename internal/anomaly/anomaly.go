@@ -1,10 +1,11 @@
 package anomaly
 
 import (
-	"github.com/Alias1177/Predictor/internal/utils"
-	"github.com/Alias1177/Predictor/models"
 	"fmt"
 	"math"
+
+	"github.com/Alias1177/Predictor/internal/utils"
+	"github.com/Alias1177/Predictor/models"
 )
 
 // detectMarketAnomalies identifies unusual market conditions

@@ -548,7 +548,7 @@ func handlePaymentSuccess(bot *tgbotapi.BotAPI, userID, chatID int64) {
 		bot.Send(msg)
 	} else if sub.Status == models.PaymentStatusAccepted {
 		// Subscription is already active
-		daysLeft := int(sub.ExpiresAt.Sub(time.Now()).Hours() / 24)
+		daysLeft := int(time.Until(sub.ExpiresAt).Hours() / 24)
 		msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("Your subscription is active! You can now run predictions for %s on %s timeframe. Your subscription will expire in %d days.", sub.CurrencyPair, sub.Timeframe, daysLeft))
 		msg.ReplyMarkup = getMainMenuKeyboard(true)
 		bot.Send(msg)
@@ -731,7 +731,7 @@ func runPrediction(bot *tgbotapi.BotAPI, chatID int64, state *UserState, logger 
 	anomalyData := anomaly.DetectMarketAnomalies(candles)
 
 	// Generate prediction
-	direction, confidence, score, factors := analyze.EnhancedPrediction(
+	direction, confidence, score, factors, tradingSuggestion := analyze.EnhancedPrediction(
 		candles, indicators, mtfData, regime, anomalyData, cfg)
 
 	// Edit message to show loading status
@@ -777,6 +777,17 @@ func runPrediction(bot *tgbotapi.BotAPI, chatID int64, state *UserState, logger 
 	if len(candles) > 0 {
 		currentPrice := candles[len(candles)-1].Close
 		resultText.WriteString(fmt.Sprintf("\n*Current Price:* %.5f\n", currentPrice))
+	}
+
+	if tradingSuggestion != nil && tradingSuggestion.Action != "NO_TRADE" {
+		resultText.WriteString("\n\n*Trading Recommendations:*\n")
+		resultText.WriteString(fmt.Sprintf("Action: %s\n", tradingSuggestion.Action))
+		resultText.WriteString(fmt.Sprintf("Entry Price: %.5f\n", tradingSuggestion.EntryPrice))
+		resultText.WriteString(fmt.Sprintf("Stop Loss: %.5f\n", tradingSuggestion.StopLoss))
+		resultText.WriteString(fmt.Sprintf("Take Profit: %.5f\n", tradingSuggestion.TakeProfit))
+		resultText.WriteString(fmt.Sprintf("Risk/Reward Ratio: %.1f\n", tradingSuggestion.RiskRewardRatio))
+		resultText.WriteString(fmt.Sprintf("Recommended Position Size: %.2f\n", tradingSuggestion.PositionSize))
+		resultText.WriteString(fmt.Sprintf("Risk per Trade: %.1f%%\n", tradingSuggestion.AccountRisk))
 	}
 
 	// Send the final result
@@ -850,7 +861,7 @@ func getEnvBool(key string, defaultVal bool) bool {
 //}
 
 // gptClient is a simple wrapper for gpt.AskGPT that captures the output
-type gptClient struct{}
+//type gptClient struct{}
 
 //func (g *gptClient) askGPT(apiKey, prompt string) string {
 //	// Adapted from your gpt.AskGPT function to return the result as a string

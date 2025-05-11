@@ -1,8 +1,9 @@
 package utils
 
 import (
-	"github.com/Alias1177/Predictor/models"
 	"math"
+
+	"github.com/Alias1177/Predictor/models"
 )
 
 // Copy the CalculateATR function from calculate/ATR.go

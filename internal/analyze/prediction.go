@@ -1,10 +1,12 @@
 package analyze
 
 import (
+	"fmt"
+	"github.com/Alias1177/Predictor/internal/calculate"
+	"math"
+
 	"github.com/Alias1177/Predictor/internal/patterns"
 	"github.com/Alias1177/Predictor/models"
-	"fmt"
-	"math"
 )
 
 func EnhancedPrediction(
@@ -13,7 +15,7 @@ func EnhancedPrediction(
 	mtfData map[string][]models.Candle,
 	regime *models.MarketRegime,
 	anomaly *models.AnomalyDetection,
-	config *models.Config) (string, string, float64, []string) {
+	config *models.Config) (string, string, float64, []string, *models.TradingSuggestion) {
 
 	// 1. Multi-timeframe trend alignment
 	trendDirection, trendStrength := patterns.DetectTrendAlignment(mtfData, config)
@@ -26,6 +28,8 @@ func EnhancedPrediction(
 
 	// 4. Order flow analysis
 	flowDirection, _ := analyzeOrderFlow(candles)
+
+	divergences := patterns.DetectDivergences(candles, indicators)
 
 	// 5. Key levels proximity
 	currentPrice := candles[len(candles)-1].Close
@@ -306,6 +310,83 @@ func EnhancedPrediction(
 		}
 	}
 
-	return direction, confidence, netScore, factors
+	for _, divergence := range divergences {
+		switch divergence.Type {
+		case "REGULAR":
+			if divergence.Direction == "BULLISH" {
+				bullishScore += 1.5 * divergence.SignalStrength
+
+				// Добавляем в факторы для объяснения если направление совпадает
+				if direction == "UP" || (netScore > 0 && direction == "NEUTRAL") {
+					factors = append(factors, fmt.Sprintf("Регулярная бычья дивергенция RSI (сила %.2f)",
+						divergence.SignalStrength))
+				}
+			} else if divergence.Direction == "BEARISH" {
+				bearishScore += 1.5 * divergence.SignalStrength
+
+				// Добавляем в факторы для объяснения если направление совпадает
+				if direction == "DOWN" || (netScore < 0 && direction == "NEUTRAL") {
+					factors = append(factors, fmt.Sprintf("Регулярная медвежья дивергенция RSI (сила %.2f)",
+						divergence.SignalStrength))
+				}
+			}
+		case "HIDDEN":
+			// Скрытые дивергенции - сигналы продолжения тренда
+			if divergence.Direction == "BULLISH" {
+				bullishScore += 1.0 * divergence.SignalStrength
+
+				if direction == "UP" || (netScore > 0 && direction == "NEUTRAL") {
+					factors = append(factors, fmt.Sprintf("Скрытая бычья дивергенция RSI (сила %.2f)",
+						divergence.SignalStrength))
+				}
+			} else if divergence.Direction == "BEARISH" {
+				bearishScore += 1.0 * divergence.SignalStrength
+
+				if direction == "DOWN" || (netScore < 0 && direction == "NEUTRAL") {
+					factors = append(factors, fmt.Sprintf("Скрытая медвежья дивергенция RSI (сила %.2f)",
+						divergence.SignalStrength))
+				}
+			}
+		}
+	}
+	stopLossLevel := calculate.DetermineStopLoss(candles, indicators, direction)
+
+	accountSize := 10000.0 // Примерный размер счета, можно получать из конфига
+	riskPerTrade := 0.01   // 1% от счета на сделку
+
+	// Расчет размера позиции
+	positionSizing := calculate.CalculatePositionSize(
+		candles[len(candles)-1].Close,
+		stopLossLevel,
+		accountSize,
+		riskPerTrade,
+	)
+
+	// Создаем торговую рекомендацию
+	tradingSuggestion := &models.TradingSuggestion{
+		Direction:       direction,
+		Confidence:      confidence,
+		Score:           netScore,
+		EntryPrice:      candles[len(candles)-1].Close,
+		StopLoss:        positionSizing.StopLoss,
+		TakeProfit:      positionSizing.TakeProfit,
+		PositionSize:    positionSizing.PositionSize,
+		RiskRewardRatio: positionSizing.RiskRewardRatio,
+		AccountRisk:     positionSizing.AccountRisk * 100, // в процентах
+		Factors:         factors,
+	}
+
+	// Если направление нейтральное или уверенность низкая, не рекомендуем сделку
+	if direction == "NEUTRAL" || confidence == "LOW" {
+		tradingSuggestion.Action = "NO_TRADE"
+	} else {
+		if direction == "UP" {
+			tradingSuggestion.Action = "BUY"
+		} else {
+			tradingSuggestion.Action = "SELL"
+		}
+	}
+
+	return direction, confidence, netScore, factors, tradingSuggestion
 
 }
