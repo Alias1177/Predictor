@@ -233,7 +233,7 @@ func handleMessage(bot *tgbotapi.BotAPI, message *tgbotapi.Message, logger *zero
 
 			if sub == nil || sub.Status != models.PaymentStatusAccepted {
 				// User needs to pay for subscription
-				msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("To run predictions for %s on %s timeframe, you need a premium subscription. The subscription costs $9.99 per month.", state.Symbol, state.Interval))
+				msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("To run predictions you need a premium subscription. The subscription costs $9.99 per month."))
 				msg.ReplyMarkup = getPaymentKeyboard()
 				bot.Send(msg)
 				state.Stage = StageAwaitingPayment
@@ -279,7 +279,7 @@ func handleMessage(bot *tgbotapi.BotAPI, message *tgbotapi.Message, logger *zero
 		state.Stage = StageAwaitingPayment
 
 		// Send payment instructions
-		msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("Please complete your payment to access premium predictions for %s on %s timeframe.", state.Symbol, state.Interval))
+		msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("Please complete your payment to access premium predictions."))
 
 		keyboard := tgbotapi.NewInlineKeyboardMarkup(
 			tgbotapi.NewInlineKeyboardRow(
@@ -422,7 +422,7 @@ func handleCallback(bot *tgbotapi.BotAPI, callback *tgbotapi.CallbackQuery, logg
 
 			if sub == nil || sub.Status != models.PaymentStatusAccepted {
 				// User needs to pay for subscription
-				msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("To run predictions for %s on %s timeframe, you need a premium subscription. The subscription costs $9.99 per month.", state.Symbol, state.Interval))
+				msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("To run predictions you need a premium subscription. The subscription costs $9.99 per month."))
 				msg.ReplyMarkup = getPaymentKeyboard()
 				bot.Send(msg)
 				state.Stage = StageAwaitingPayment
@@ -479,7 +479,7 @@ func handleCallback(bot *tgbotapi.BotAPI, callback *tgbotapi.CallbackQuery, logg
 		editMsg := tgbotapi.NewEditMessageText(
 			chatID,
 			sentMsg.MessageID,
-			fmt.Sprintf("Please complete your payment to access premium predictions for %s on %s timeframe.", state.Symbol, state.Interval),
+			fmt.Sprintf("Please complete your payment to access premium predictions."),
 		)
 
 		// Add payment URL button
@@ -532,7 +532,7 @@ func handlePaymentSuccess(bot *tgbotapi.BotAPI, userID, chatID int64) {
 		// Update subscription status directly
 		if err := db.UpdateSubscriptionStatus(userID, models.PaymentStatusAccepted, paymentID); err != nil {
 			log.Printf("Failed to manually update subscription status: %v", err)
-			msg := tgbotapi.NewMessage(chatID, "Thank you for your payment! Your subscription is being processed and will be activated shortly. If it's not active in a few minutes, please contact support.")
+			msg := tgbotapi.NewMessage(chatID, "Thank you for your payment!Your subscription is being processed and will be activated shortly. If it's not active in a few minutes, please contact support.")
 			bot.Send(msg)
 			return
 		}
@@ -544,7 +544,8 @@ func handlePaymentSuccess(bot *tgbotapi.BotAPI, userID, chatID int64) {
 		}
 
 		// Notify about manual activation
-		msg := tgbotapi.NewMessage(chatID, "Thank you for your payment! Your subscription has been activated.")
+		msg := tgbotapi.NewMessage(chatID, "Thank you for your payment!\n Your subscription has been activated.\n"+
+			"\n🚨Attention: Refusal of responsibility\n\nThe trading signals provided are intended exclusively for information and educational purposes. They are not an investment recommendation and cannot be considered as a financial council.\n\nThe user agrees that: \n• All trade decisions are made by him at his own risk. \n• He undertakes to use no more than 1-2% of the deposit per transaction. \n• He realizes that trade in financial markets is associated with a high level of risk. \n• The company is not responsible for the possible losses incurred as a result of the use of signals.\n\nUsing this service, you confirm that you are familiar with the risks and take full responsibility for your actions.\n\nHow to Read a Signal: Educational Guide\n\nEach signal you receive includes important data. Here’s how to interpret it:\n\n⸻\n\n1. Direction\nThis shows whether the model expects the price to go UP (buy) or DOWN (sell).\nExample: Direction: DOWN means you may consider selling the asset.\n\n⸻\n\n2. Confidence\nThis indicates how strong the model’s prediction is.\n • LOW: Less reliable, trade with caution.\n • MEDIUM: Moderate confidence.\n • HIGH: Strong signal with higher probability.\n\nYou should only trade when the confidence is HIGH or very close to it.\n\n⸻\n\n3. Score\nThis is a numerical value showing the strength and direction of the signal.\n • Positive scores (e.g., +5.0) = Buying pressure (BUY)\n • Negative scores (e.g., -5.0) = Selling pressure (SELL)\n • Values around 0 = Unclear direction, avoid trading.\n\nAs a rule of thumb:\n • Score > +4 → Strong Buy\n • Score < -4 → Strong Sell\n\n⸻\n\n4. Market Regime & Volatility\nThis tells you the current market conditions:\n • Trending: Prices are moving in one direction (up or down).\n • Ranging: Prices are moving sideways (no strong trend).\n • Volatility shows how active the market is. Higher volatility = more movement, more risk.\n\nUse this to decide whether it’s a good time to enter a trade.\n\n⸻\n\n5. Indicators\nYou’ll see technical indicators like RSI, MACD, Bollinger Bands, and more. These confirm the signal.\nFor example:\n • RSI under 50 = bearish pressure\n • MACD negative = bearish trend\n • Price near resistance = higher chance of reversal\n\n⸻\n\n6. Decision Factors\nThis section lists key technical signals the model uses to make its decision:\n • Patterns like Shooting Star, Double Top, Engulfing = Price reversal signals\n • Rejection at support/resistance zones\n • Indicator alignment (multiple indicators agreeing)\n\n⸻\n\n7. Trading Recommendations\nIncludes a sample trade setup:\n • Action: What to do (BUY/SELL)\n • Entry Price: Where to enter the trade\n • Stop Loss: Where to limit your loss\n • Take Profit: Where to close with a profit\n • Risk/Reward Ratio: Balance between risk and reward\n • Recommended Position Size: Based on 1% risk of your total capital\n\nYou’re responsible for managing your risk.\nDo not trade emotionally or use high leverage. Stick to 1-2% risk per trade.\n\n⸻\n\nNote:\nThis is not financial advice. You trade at your own risk. For deeper knowledge, check out our PDF guide:\n\nhttps://t.me/Trade_Plus_Online_Bot")
 		bot.Send(msg)
 	} else if sub.Status == models.PaymentStatusAccepted {
 		// Subscription is already active
