@@ -20,7 +20,6 @@ func main() {
 		log.Println("Warning: .env file not found")
 	}
 
-	// Initialize database with PostgreSQL connection
 	dbParams := database.ConnectionParams{
 		Host:     os.Getenv("DB_HOST"),
 		Port:     os.Getenv("DB_PORT"),

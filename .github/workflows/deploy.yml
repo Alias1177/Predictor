@@ -2,8 +2,8 @@ name: Deploy Forex Predictor Bot
 
 on:
   push:
-    branches: [ main ]  # Or your default branch
-  workflow_dispatch:    # Allows manual triggers
+    branches: [main]  # Или ваша основная ветка
+  workflow_dispatch:  # Позволяет запускать вручную
 
 jobs:
   deploy:
@@ -12,10 +12,22 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
+      # Добавлен шаг для отладки наличия секретов
+      - name: Debug secrets
+        run: |
+          echo "SSH_USER secret exists: ${{ secrets.SSH_USER != '' }}"
+          echo "SSH_HOST secret exists: ${{ secrets.SSH_HOST != '' }}"
+          echo "SSH_PRIVATE_KEY secret exists: ${{ secrets.SSH_PRIVATE_KEY != '' }}"
+
       - name: Set up SSH
         uses: webfactory/ssh-agent@v0.8.0
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      # Тестовый шаг для проверки SSH-подключения
+      - name: Test SSH connection
+        run: |
+          ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} 'echo "Connection successful"'
 
       - name: Create .env file
         run: |
@@ -66,30 +78,91 @@ jobs:
           # Server Configuration
           PORT=${{ secrets.PORT }}
           EOF
+          
+          # Проверка создания файла
+          ls -la
+          head -n 5 .env
 
       - name: Set up deployment directory on server
         run: |
+          echo "Setting up directory on ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}"
           ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} '
             mkdir -p /root/predictor
+            echo "Directory created/verified: $(pwd)/predictor"
+            ls -la /root
           '
 
       - name: Copy .env file to server
         run: |
+          echo "Copying .env file to ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:/root/predictor/"
           scp -o StrictHostKeyChecking=no .env ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:/root/predictor/
+          # Проверка копирования
+          ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} 'ls -la /root/predictor'
 
       - name: Copy project files to server
         run: |
+          echo "Copying project files to server..."
           scp -o StrictHostKeyChecking=no -r ./* ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:/root/predictor/
+          # Проверка копирования
+          ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} 'ls -la /root/predictor'
+
+      - name: Check Docker installation
+        run: |
+          ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} '
+            echo "Checking Docker installation..."
+            if ! command -v docker &> /dev/null; then
+              echo "Docker not found. Installing Docker..."
+              apt update
+              apt install -y apt-transport-https ca-certificates curl software-properties-common
+              curl -fsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add -
+              add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
+              apt update
+              apt install -y docker-ce docker-ce-cli containerd.io
+            else
+              echo "Docker is installed. Version: $(docker --version)"
+            fi
+          
+            if ! command -v docker-compose &> /dev/null; then
+              echo "Docker Compose not found. Installing Docker Compose..."
+              curl -L "https://github.com/docker/compose/releases/download/v2.23.0/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+              chmod +x /usr/local/bin/docker-compose
+            else
+              echo "Docker Compose is installed. Version: $(docker-compose --version)"
+            fi
+          '
 
       - name: Deploy application
         run: |
           ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} '
             cd /root/predictor
-            docker-compose down
-            docker-compose build --no-cache
-            docker-compose up -d
-            echo "Deployment completed successfully!"
+            echo "Current directory: $(pwd)"
+            echo "Files in directory:"
+            ls -la
           
-            # Check if containers are running
+            echo "Stopping any existing containers..."
+            docker-compose down || true
+          
+            echo "Building Docker images..."
+            docker-compose build --no-cache
+          
+            echo "Starting containers..."
+            docker-compose up -d
+          
+            echo "Checking running containers..."
             docker-compose ps
+          
+            echo "Checking container logs..."
+            docker-compose logs --tail 20
+          
+            echo "Deployment completed successfully!"
           '
+
+      - name: Set up Telegram webhook (if domain available)
+        run: |
+          # Этот шаг опционален и зависит от наличия домена
+          # Раскомментируйте если у вас есть домен направленный на сервер
+          # export WEBHOOK_DOMAIN=your-domain.com
+          # ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} '
+          #   curl -F "url=https://${WEBHOOK_DOMAIN}/webhook" https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/setWebhook
+          # '
+          echo "Note: To set up Telegram webhook with your domain, update and uncomment the webhook setup step"
