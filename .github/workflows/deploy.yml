@@ -1,0 +1,95 @@
+name: Deploy Forex Predictor Bot
+
+on:
+  push:
+    branches: [ main ]  # Or your default branch
+  workflow_dispatch:    # Allows manual triggers
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up SSH
+        uses: webfactory/ssh-agent@v0.8.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Create .env file
+        run: |
+          cat > .env << EOF
+          # API Keys
+          TWELVE_API_KEY=${{ secrets.TWELVE_API_KEY }}
+          OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
+          TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}
+
+          # Database Configuration
+          DB_HOST=${{ secrets.DB_HOST }}
+          DB_PORT=${{ secrets.DB_PORT }}
+          DB_USER=${{ secrets.DB_USER }}
+          DB_PASSWORD=${{ secrets.DB_PASSWORD }}
+          DB_NAME=${{ secrets.DB_NAME }}
+          DB_SSLMODE=${{ secrets.DB_SSLMODE }}
+
+          # Telegram Bot Configuration
+          TELEGRAM_BOT_USERNAME=${{ secrets.TELEGRAM_BOT_USERNAME }}
+
+          SYMBOL=${{ secrets.SYMBOL }}
+          INTERVAL=${{ secrets.INTERVAL }}
+          CANDLE_COUNT=${{ secrets.CANDLE_COUNT }}
+
+          # Final optimized settings
+          RSI_PERIOD=${{ secrets.RSI_PERIOD }}
+          MACD_FAST_PERIOD=${{ secrets.MACD_FAST_PERIOD }}
+          MACD_SLOW_PERIOD=${{ secrets.MACD_SLOW_PERIOD }}
+          MACD_SIGNAL_PERIOD=${{ secrets.MACD_SIGNAL_PERIOD }}
+          BB_PERIOD=${{ secrets.BB_PERIOD }}
+          BB_STD_DEV=${{ secrets.BB_STD_DEV }}
+          EMA_PERIOD=${{ secrets.EMA_PERIOD }}
+          ADX_PERIOD=${{ secrets.ADX_PERIOD }}
+          ATR_PERIOD=${{ secrets.ATR_PERIOD }}
+
+          # Application settings
+          LOG_LEVEL=${{ secrets.LOG_LEVEL }}
+          REQUEST_TIMEOUT=${{ secrets.REQUEST_TIMEOUT }}
+          ADAPTIVE_INDICATOR=${{ secrets.ADAPTIVE_INDICATOR }}
+          ENABLE_BACKTEST=${{ secrets.ENABLE_BACKTEST }}
+          BACKTEST_DAYS=${{ secrets.BACKTEST_DAYS }}
+
+          # Stripe Configuration
+          STRIPE_API_KEY=${{ secrets.STRIPE_API_KEY }}
+          STRIPE_SUBSCRIPTION_PRICE_ID=${{ secrets.STRIPE_SUBSCRIPTION_PRICE_ID }}
+          STRIPE_WEBHOOK_SECRET=${{ secrets.STRIPE_WEBHOOK_SECRET }}
+
+          # Server Configuration
+          PORT=${{ secrets.PORT }}
+          EOF
+
+      - name: Set up deployment directory on server
+        run: |
+          ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} '
+            mkdir -p /root/predictor
+          '
+
+      - name: Copy .env file to server
+        run: |
+          scp -o StrictHostKeyChecking=no .env ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:/root/predictor/
+
+      - name: Copy project files to server
+        run: |
+          scp -o StrictHostKeyChecking=no -r ./* ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:/root/predictor/
+
+      - name: Deploy application
+        run: |
+          ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} '
+            cd /root/predictor
+            docker-compose down
+            docker-compose build --no-cache
+            docker-compose up -d
+            echo "Deployment completed successfully!"
+          
+            # Check if containers are running
+            docker-compose ps
+          '

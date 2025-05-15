@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	_ "github.com/lib/pq" // PostgreSQL драйвер
+	_ "github.com/lib/pq"
 
 	"github.com/Alias1177/Predictor/config"
 	"github.com/Alias1177/Predictor/internal/analyze"
@@ -24,7 +24,6 @@ import (
 	"github.com/rs/zerolog"
 )
 
-// Supported currency pairs and intervals
 var (
 	supportedPairs = []string{
 		"EUR/USD", "GBP/USD", "USD/JPY", "AUD/USD",
