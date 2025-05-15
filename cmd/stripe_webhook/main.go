@@ -10,7 +10,7 @@ import (
 	"github.com/Alias1177/Predictor/internal/database"
 	"github.com/Alias1177/Predictor/internal/payment"
 
-	_ "github.com/lib/pq" // PostgreSQL драйвер
+	_ "github.com/lib/pq"
 
 	"github.com/joho/godotenv"
 )

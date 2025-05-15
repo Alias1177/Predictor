@@ -2,8 +2,8 @@ name: Deploy Forex Predictor Bot
 
 on:
   push:
-    branches: [main]  # Или ваша основная ветка
-  workflow_dispatch:  # Позволяет запускать вручную
+    branches: [main]
+  workflow_dispatch:
 
 jobs:
   deploy:
@@ -12,104 +12,54 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      # Добавлен шаг для отладки наличия секретов
-      - name: Debug secrets
-        run: |
-          echo "SSH_USER secret exists: ${{ secrets.SSH_USER != '' }}"
-          echo "SSH_HOST secret exists: ${{ secrets.SSH_HOST != '' }}"
-          echo "SSH_PRIVATE_KEY secret exists: ${{ secrets.SSH_PRIVATE_KEY != '' }}"
-
       - name: Set up SSH
         uses: webfactory/ssh-agent@v0.8.0
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
-      # Тестовый шаг для проверки SSH-подключения
-      - name: Test SSH connection
-        run: |
-          ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} 'echo "Connection successful"'
-
       - name: Create .env file
         run: |
-          cat > .env << EOF
-          # API Keys
-          TWELVE_API_KEY=${{ secrets.TWELVE_API_KEY }}
-          OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
-          TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}
+          # Используем секрет ENV напрямую
+          echo "${{ secrets.ENV }}" > .env
+          echo ".env file created successfully"
+          ls -la .env
 
-          # Database Configuration
-          DB_HOST=${{ secrets.DB_HOST }}
-          DB_PORT=${{ secrets.DB_PORT }}
-          DB_USER=${{ secrets.DB_USER }}
-          DB_PASSWORD=${{ secrets.DB_PASSWORD }}
-          DB_NAME=${{ secrets.DB_NAME }}
-          DB_SSLMODE=${{ secrets.DB_SSLMODE }}
+      # Добавьте секреты SSH_USER и SSH_HOST в ваш репозиторий,
+      # или временно используйте хардкодированные значения ниже
 
-          # Telegram Bot Configuration
-          TELEGRAM_BOT_USERNAME=${{ secrets.TELEGRAM_BOT_USERNAME }}
-
-          SYMBOL=${{ secrets.SYMBOL }}
-          INTERVAL=${{ secrets.INTERVAL }}
-          CANDLE_COUNT=${{ secrets.CANDLE_COUNT }}
-
-          # Final optimized settings
-          RSI_PERIOD=${{ secrets.RSI_PERIOD }}
-          MACD_FAST_PERIOD=${{ secrets.MACD_FAST_PERIOD }}
-          MACD_SLOW_PERIOD=${{ secrets.MACD_SLOW_PERIOD }}
-          MACD_SIGNAL_PERIOD=${{ secrets.MACD_SIGNAL_PERIOD }}
-          BB_PERIOD=${{ secrets.BB_PERIOD }}
-          BB_STD_DEV=${{ secrets.BB_STD_DEV }}
-          EMA_PERIOD=${{ secrets.EMA_PERIOD }}
-          ADX_PERIOD=${{ secrets.ADX_PERIOD }}
-          ATR_PERIOD=${{ secrets.ATR_PERIOD }}
-
-          # Application settings
-          LOG_LEVEL=${{ secrets.LOG_LEVEL }}
-          REQUEST_TIMEOUT=${{ secrets.REQUEST_TIMEOUT }}
-          ADAPTIVE_INDICATOR=${{ secrets.ADAPTIVE_INDICATOR }}
-          ENABLE_BACKTEST=${{ secrets.ENABLE_BACKTEST }}
-          BACKTEST_DAYS=${{ secrets.BACKTEST_DAYS }}
-
-          # Stripe Configuration
-          STRIPE_API_KEY=${{ secrets.STRIPE_API_KEY }}
-          STRIPE_SUBSCRIPTION_PRICE_ID=${{ secrets.STRIPE_SUBSCRIPTION_PRICE_ID }}
-          STRIPE_WEBHOOK_SECRET=${{ secrets.STRIPE_WEBHOOK_SECRET }}
-
-          # Server Configuration
-          PORT=${{ secrets.PORT }}
-          EOF
-          
-          # Проверка создания файла
-          ls -la
-          head -n 5 .env
-
+      # Используем actions для SSH с хардкодированными значениями
       - name: Set up deployment directory on server
-        run: |
-          echo "Setting up directory on ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}"
-          ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} '
+        uses: appleboy/ssh-action@v0.1.10
+        with:
+          host: 168.231.87.153  # Замените на ${{ secrets.SSH_HOST }} после добавления секрета
+          username: root        # Замените на ${{ secrets.SSH_USER }} после добавления секрета
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
             mkdir -p /root/predictor
-            echo "Directory created/verified: $(pwd)/predictor"
-            ls -la /root
-          '
+            echo "Directory created/verified: /root/predictor"
 
-      - name: Copy .env file to server
-        run: |
-          echo "Copying .env file to ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:/root/predictor/"
-          scp -o StrictHostKeyChecking=no .env ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:/root/predictor/
-          # Проверка копирования
-          ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} 'ls -la /root/predictor'
+      # Используем actions для копирования файлов
+      - name: Copy files to server
+        uses: appleboy/scp-action@v0.1.4
+        with:
+          host: 168.231.87.153  # Замените на ${{ secrets.SSH_HOST }} после добавления секрета
+          username: root        # Замените на ${{ secrets.SSH_USER }} после добавления секрета
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: ".,.env,*,.*"
+          target: "/root/predictor"
+          rm: false
 
-      - name: Copy project files to server
-        run: |
-          echo "Copying project files to server..."
-          scp -o StrictHostKeyChecking=no -r ./* ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:/root/predictor/
-          # Проверка копирования
-          ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} 'ls -la /root/predictor'
-
-      - name: Check Docker installation
-        run: |
-          ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} '
-            echo "Checking Docker installation..."
+      # Проверка Docker и Docker Compose, затем запуск
+      - name: Deploy application
+        uses: appleboy/ssh-action@v0.1.10
+        with:
+          host: 168.231.87.153  # Замените на ${{ secrets.SSH_HOST }} после добавления секрета
+          username: root        # Замените на ${{ secrets.SSH_USER }} после добавления секрета
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            cd /root/predictor
+            
+            # Проверка Docker
             if ! command -v docker &> /dev/null; then
               echo "Docker not found. Installing Docker..."
               apt update
@@ -121,7 +71,8 @@ jobs:
             else
               echo "Docker is installed. Version: $(docker --version)"
             fi
-          
+            
+            # Проверка Docker Compose
             if ! command -v docker-compose &> /dev/null; then
               echo "Docker Compose not found. Installing Docker Compose..."
               curl -L "https://github.com/docker/compose/releases/download/v2.23.0/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
@@ -129,40 +80,38 @@ jobs:
             else
               echo "Docker Compose is installed. Version: $(docker-compose --version)"
             fi
-          '
-
-      - name: Deploy application
-        run: |
-          ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} '
-            cd /root/predictor
-            echo "Current directory: $(pwd)"
-            echo "Files in directory:"
-            ls -la
-          
-            echo "Stopping any existing containers..."
+            
+            # Остановка существующих контейнеров
+            echo "Stopping existing containers..."
             docker-compose down || true
-          
+            
+            # Сборка и запуск
             echo "Building Docker images..."
             docker-compose build --no-cache
-          
+            
             echo "Starting containers..."
             docker-compose up -d
-          
+            
             echo "Checking running containers..."
             docker-compose ps
-          
+            
             echo "Checking container logs..."
             docker-compose logs --tail 20
-          
+            
             echo "Deployment completed successfully!"
-          '
 
-      - name: Set up Telegram webhook (if domain available)
-        run: |
-          # Этот шаг опционален и зависит от наличия домена
-          # Раскомментируйте если у вас есть домен направленный на сервер
-          # export WEBHOOK_DOMAIN=your-domain.com
-          # ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} '
-          #   curl -F "url=https://${WEBHOOK_DOMAIN}/webhook" https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/setWebhook
-          # '
-          echo "Note: To set up Telegram webhook with your domain, update and uncomment the webhook setup step"
+      # Опциональная настройка вебхука для Telegram
+      - name: Set up Telegram webhook
+        uses: appleboy/ssh-action@v0.1.10
+        with:
+          host: 168.231.87.153  # Замените на ${{ secrets.SSH_HOST }} после добавления секрета
+          username: root        # Замените на ${{ secrets.SSH_USER }} после добавления секрета
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            # Извлекаем токен бота из .env файла
+            TELEGRAM_BOT_TOKEN=$(grep TELEGRAM_BOT_TOKEN /root/predictor/.env | cut -d= -f2)
+            
+            # Используем IP-адрес для webhook (для тестирования)
+            echo "Setting up Telegram webhook..."
+            curl -F "url=http://168.231.87.153:8080/webhook" https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook
+            echo "Webhook setup completed"
