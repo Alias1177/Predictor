@@ -112,10 +112,13 @@ func MarketStateHMM(candles []models.Candle, windowSize int) *models.MarketRegim
 func EnhancedMarketRegimeClassification(candles []models.Candle) (*models.MarketRegime, error) {
 	if len(candles) < 50 {
 		return &models.MarketRegime{
-			Type:            "UNKNOWN",
-			Strength:        0,
-			Direction:       "NEUTRAL",
-			VolatilityLevel: "NORMAL",
+			Type:             "UNKNOWN",
+			Strength:         0,
+			Direction:        "NEUTRAL",
+			VolatilityLevel:  "NORMAL",
+			MomentumStrength: 0,
+			LiquidityRating:  "NORMAL",
+			PriceStructure:   "UNKNOWN",
 		}, nil
 	}
 
@@ -125,7 +128,11 @@ func EnhancedMarketRegimeClassification(candles []models.Candle) (*models.Market
 	}
 
 	// Определяем режим на основе признаков
-	regime := &models.MarketRegime{}
+	regime := &models.MarketRegime{
+		LiquidityRating:  "NORMAL",
+		PriceStructure:   "UNKNOWN",
+		MomentumStrength: 0.5,
+	}
 
 	// Анализ волатильности
 	volatility := features[0]
@@ -145,8 +152,10 @@ func EnhancedMarketRegimeClassification(candles []models.Candle) (*models.Market
 	if math.Abs(trend) > 0.01 {
 		if trend > 0 {
 			regime.Direction = "BULLISH"
+			regime.PriceStructure = "TRENDING_UP"
 		} else {
 			regime.Direction = "BEARISH"
+			regime.PriceStructure = "TRENDING_DOWN"
 		}
 		regime.Strength = math.Min(math.Abs(trend)*10, 1.0)
 	} else {
@@ -164,15 +173,12 @@ func EnhancedMarketRegimeClassification(candles []models.Candle) (*models.Market
 		regime.MomentumStrength = 0.5
 	}
 
-	// Устанавливаем VolatilityLevel для всех типов режимов
-	if regime.VolatilityLevel == "" {
-		if volatility > 0.02 {
-			regime.VolatilityLevel = "HIGH"
-		} else if volatility < 0.005 {
-			regime.VolatilityLevel = "LOW"
-		} else {
-			regime.VolatilityLevel = "NORMAL"
-		}
+	// Анализ ликвидности
+	volumeChange := features[3]
+	if volumeChange > 0.5 {
+		regime.LiquidityRating = "HIGH"
+	} else if volumeChange < -0.5 {
+		regime.LiquidityRating = "LOW"
 	}
 
 	return regime, nil
