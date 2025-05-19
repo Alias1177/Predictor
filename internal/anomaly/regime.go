@@ -138,15 +138,21 @@ func EnhancedMarketRegimeClassification(candles []models.Candle) (*models.Market
 
 	// Анализ волатильности
 	volatility := features[0]
-	if volatility > 0.02 {
+	// Адаптивные пороги на основе исторических данных
+	historicalVolatilities := make([]float64, 0)
+	for i := 0; i < len(candles)-1; i++ {
+		historicalVolatilities = append(historicalVolatilities, math.Abs((candles[i+1].Close-candles[i].Close)/candles[i].Close))
+	}
+	meanVol, stdVol := calculateMeanStd(historicalVolatilities)
+
+	if volatility > meanVol+stdVol*1.2 {
 		regime.Type = "VOLATILE"
 		regime.VolatilityLevel = "HIGH"
-		regime.Strength = math.Min(volatility*50, 1.0)
-	} else if volatility < 0.005 {
+		regime.Strength = math.Min((volatility-meanVol)/stdVol/2, 1.0)
+	} else if volatility < meanVol-stdVol*0.8 {
 		regime.Type = "RANGING"
 		regime.VolatilityLevel = "LOW"
-		// Сила режима для RANGING зависит от стабильности цены
-		priceStability := 1.0 - (volatility / 0.005)
+		priceStability := 1.0 - (volatility / (meanVol - stdVol*0.8))
 		regime.Strength = math.Min(priceStability*1.2, 1.0)
 	} else {
 		regime.Type = "TRENDING"
@@ -154,9 +160,15 @@ func EnhancedMarketRegimeClassification(candles []models.Candle) (*models.Market
 		regime.Strength = 0.5
 	}
 
-	// Анализ тренда
+	// Анализ тренда с адаптивными порогами
 	trend := features[1]
-	if math.Abs(trend) > 0.01 {
+	historicalTrends := make([]float64, 0)
+	for i := 20; i < len(candles); i++ {
+		historicalTrends = append(historicalTrends, (candles[i].Close-candles[i-20].Close)/candles[i-20].Close)
+	}
+	meanTrend, stdTrend := calculateMeanStd(historicalTrends)
+
+	if math.Abs(trend) > meanTrend+stdTrend*0.8 {
 		if trend > 0 {
 			regime.Direction = "BULLISH"
 			regime.PriceStructure = "TRENDING_UP"
@@ -164,11 +176,9 @@ func EnhancedMarketRegimeClassification(candles []models.Candle) (*models.Market
 			regime.Direction = "BEARISH"
 			regime.PriceStructure = "TRENDING_DOWN"
 		}
-		// Для трендовых режимов сила зависит от силы тренда
-		regime.Strength = math.Min(math.Abs(trend)*10, 1.0)
+		regime.Strength = math.Min(math.Abs(trend)/(meanTrend+stdTrend*0.8), 1.0)
 	} else {
 		regime.Direction = "NEUTRAL"
-		// Для нетрендовых режимов сохраняем силу от волатильности
 		regime.Strength = math.Max(regime.Strength, 0.3)
 	}
 
