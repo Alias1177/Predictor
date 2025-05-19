@@ -28,12 +28,14 @@ type Config struct {
 
 // Candle represents a single price candle
 type Candle struct {
-	Datetime string  `json:"datetime"`
-	Open     float64 `json:"open"`
-	High     float64 `json:"high"`
-	Low      float64 `json:"low"`
-	Close    float64 `json:"close"`
-	Volume   int64   `json:"volume,omitempty"`
+	Symbol    string    `json:"symbol"`    // Символ инструмента
+	TimeFrame string    `json:"timeframe"` // Таймфрейм
+	Open      float64   `json:"open"`      // Цена открытия
+	High      float64   `json:"high"`      // Максимальная цена
+	Low       float64   `json:"low"`       // Минимальная цена
+	Close     float64   `json:"close"`     // Цена закрытия
+	Volume    int64     `json:"volume"`    // Объем
+	Timestamp time.Time `json:"timestamp"` // Временная метка
 }
 
 // TwelveResponse represents the API response from Twelve Data
@@ -279,4 +281,142 @@ type TradingSuggestion struct {
 	RiskRewardRatio float64  `json:"risk_reward_ratio"` // Соотношение риск/доходность
 	AccountRisk     float64  `json:"account_risk"`      // Процент риска от размера счета
 	Factors         []string `json:"factors"`           // Факторы, повлиявшие на решение
+}
+
+// Prediction представляет результат анализа и предсказания
+type Prediction struct {
+	Direction         string
+	Confidence        string
+	Score             float64
+	Factors           []string
+	TradingSuggestion *TradingSuggestion
+}
+
+// MarketAnalysis представляет результаты анализа рынка
+type MarketAnalysis struct {
+	Symbol          string                  `json:"symbol"`           // Символ инструмента
+	TimeFrame       string                  `json:"timeframe"`        // Таймфрейм
+	LastPrice       float64                 `json:"last_price"`       // Последняя цена
+	LastUpdated     time.Time               `json:"last_updated"`     // Время последнего обновления
+	Direction       string                  `json:"direction"`        // Направление движения (bullish/bearish/neutral)
+	Confidence      float64                 `json:"confidence"`       // Уверенность в предсказании (0-1)
+	MarketSentiment *MarketSentiment        `json:"market_sentiment"` // Анализ настроений рынка
+	Correlations    *CorrelationAnalysis    `json:"correlations"`     // Анализ корреляций
+	Liquidity       *LiquidityAnalysis      `json:"liquidity"`        // Анализ ликвидности
+	Volume          *VolumeAnalysis         `json:"volume"`           // Анализ объемов
+	Microstructure  *MicrostructureAnalysis `json:"microstructure"`   // Анализ микроструктуры
+	News            *NewsAnalysis           `json:"news"`             // Анализ новостей
+	Fundamentals    *FundamentalAnalysis    `json:"fundamentals"`     // Фундаментальный анализ
+}
+
+// MarketSentiment представляет настроения рынка
+type MarketSentiment struct {
+	FearGreedIndex  float64 `json:"fear_greed_index"` // 0-100
+	MarketMood      string  `json:"market_mood"`      // bullish/bearish/neutral
+	SocialSentiment float64 `json:"social_sentiment"` // -1 до 1
+	VolumeSentiment float64 `json:"volume_sentiment"` // -1 до 1
+	VolatilityMood  string  `json:"volatility_mood"`  // high/low/medium
+}
+
+// CorrelationAnalysis представляет результаты анализа корреляций
+type CorrelationAnalysis struct {
+	AssetCorrelations     map[string]float64 `json:"asset_correlations"`     // Корреляции с другими активами
+	MarketCorrelation     float64            `json:"market_correlation"`     // Корреляция с рынком
+	VolatilityCorrelation float64            `json:"volatility_correlation"` // Корреляция с волатильностью
+	VolumeCorrelation     float64            `json:"volume_correlation"`     // Корреляция с объемом
+}
+
+// LiquidityAnalysis представляет результаты анализа ликвидности
+type LiquidityAnalysis struct {
+	BidAskSpread   float64 `json:"bid_ask_spread"`   // Спред между bid и ask
+	OrderBookDepth float64 `json:"order_book_depth"` // Глубина стакана
+	VolumeProfile  float64 `json:"volume_profile"`   // Профиль объема
+	MarketImpact   float64 `json:"market_impact"`    // Влияние на рынок
+	LiquidityScore float64 `json:"liquidity_score"`  // Общий скор ликвидности
+}
+
+// VolumeAnalysis представляет результаты анализа объемов
+type VolumeAnalysis struct {
+	VolumeTrend     string          `json:"volume_trend"`     // Тренд объема
+	VolumeStrength  float64         `json:"volume_strength"`  // Сила объема
+	VolumeProfile   float64         `json:"volume_profile"`   // Профиль объема
+	VolumeImbalance float64         `json:"volume_imbalance"` // Дисбаланс объема
+	VolumeClusters  []VolumeCluster `json:"volume_clusters"`  // Кластеры объема
+}
+
+// VolumeCluster представляет кластер объема
+type VolumeCluster struct {
+	Price     float64 `json:"price"`     // Цена кластера
+	Volume    int64   `json:"volume"`    // Объем кластера
+	Direction string  `json:"direction"` // Направление (buy/sell)
+}
+
+// MicrostructureAnalysis представляет результаты анализа микроструктуры
+type MicrostructureAnalysis struct {
+	OrderFlow       OrderFlowAnalysis      `json:"order_flow"`       // Анализ потока ордеров
+	PriceImpact     PriceImpactAnalysis    `json:"price_impact"`     // Анализ влияния на цену
+	MarketQuality   MarketQualityMetrics   `json:"market_quality"`   // Метрики качества рынка
+	TradingActivity TradingActivityMetrics `json:"trading_activity"` // Метрики торговой активности
+}
+
+// OrderFlowAnalysis представляет анализ потока ордеров
+type OrderFlowAnalysis struct {
+	BuyPressure   float64 `json:"buy_pressure"`   // Давление покупателей
+	SellPressure  float64 `json:"sell_pressure"`  // Давление продавцов
+	NetFlow       float64 `json:"net_flow"`       // Чистый поток
+	FlowImbalance float64 `json:"flow_imbalance"` // Дисбаланс потока
+	LargeOrders   int     `json:"large_orders"`   // Количество крупных ордеров
+}
+
+// PriceImpactAnalysis представляет анализ влияния на цену
+type PriceImpactAnalysis struct {
+	ImmediateImpact float64 `json:"immediate_impact"` // Мгновенное влияние
+	PermanentImpact float64 `json:"permanent_impact"` // Постоянное влияние
+	ImpactDecay     float64 `json:"impact_decay"`     // Затухание влияния
+	PriceElasticity float64 `json:"price_elasticity"` // Эластичность цены
+}
+
+// MarketQualityMetrics представляет метрики качества рынка
+type MarketQualityMetrics struct {
+	Efficiency    float64 `json:"efficiency"`    // Эффективность рынка
+	Resilience    float64 `json:"resilience"`    // Устойчивость рынка
+	Fragmentation float64 `json:"fragmentation"` // Фрагментация рынка
+	Transparency  float64 `json:"transparency"`  // Прозрачность рынка
+}
+
+// TradingActivityMetrics представляет метрики торговой активности
+type TradingActivityMetrics struct {
+	TradeFrequency float64 `json:"trade_frequency"` // Частота сделок
+	TradeSize      float64 `json:"trade_size"`      // Размер сделок
+	TradeValue     float64 `json:"trade_value"`     // Стоимость сделок
+	ActiveTraders  int     `json:"active_traders"`  // Активные трейдеры
+}
+
+// NewsAnalysis представляет анализ новостей
+type NewsAnalysis struct {
+	Sentiment    float64            `json:"sentiment"`     // Общий сентимент (-1 до 1)
+	Impact       float64            `json:"impact"`        // Влияние на рынок (0-1)
+	Relevance    float64            `json:"relevance"`     // Релевантность (0-1)
+	NewsCount    int                `json:"news_count"`    // Количество новостей
+	TopNews      []NewsItem         `json:"top_news"`      // Важные новости
+	MarketImpact map[string]float64 `json:"market_impact"` // Влияние на разные аспекты рынка
+}
+
+// NewsItem представляет отдельную новость
+type NewsItem struct {
+	Title       string    `json:"title"`        // Заголовок
+	Content     string    `json:"content"`      // Содержание
+	Sentiment   float64   `json:"sentiment"`    // Сентимент (-1 до 1)
+	Impact      float64   `json:"impact"`       // Влияние (0-1)
+	PublishedAt time.Time `json:"published_at"` // Время публикации
+	Symbol      string    `json:"symbol"`       // Символ инструмента
+}
+
+// FundamentalAnalysis представляет фундаментальный анализ
+type FundamentalAnalysis struct {
+	EconomicIndicators map[string]float64 `json:"economic_indicators"` // Экономические индикаторы
+	MarketConditions   map[string]float64 `json:"market_conditions"`   // Рыночные условия
+	RiskFactors        map[string]float64 `json:"risk_factors"`        // Факторы риска
+	MarketRegime       string             `json:"market_regime"`       // Режим рынка
+	RegimeStrength     float64            `json:"regime_strength"`     // Сила режима (0-1)
 }

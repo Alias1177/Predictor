@@ -14,13 +14,19 @@ services:
       - "5433:5432"
     networks:
       - predictor-network
+    # Добавляем healthcheck для проверки готовности PostgreSQL
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   tgbot:
     build:
       context: .
       dockerfile: Dockerfile
       target: tgbot
-    restart: always
+    restart: on-failure  # Изменено с "always" на "on-failure"
     environment:
       - TZ=UTC
     env_file:
@@ -28,14 +34,15 @@ services:
     networks:
       - predictor-network
     depends_on:
-      - postgresql
+      postgresql:
+        condition: service_healthy  # Изменено: ждём пока PostgreSQL не будет готов
 
   webhook:
     build:
       context: .
       dockerfile: Dockerfile
       target: webhook
-    restart: always
+    restart: on-failure  # Изменено с "always" на "on-failure"
     ports:
       - "8080:8080"
     environment:
@@ -45,7 +52,8 @@ services:
     networks:
       - predictor-network
     depends_on:
-      - postgresql
+      postgresql:
+        condition: service_healthy  # Изменено: ждём пока PostgreSQL не будет готов
 
 volumes:
   postgres_data:

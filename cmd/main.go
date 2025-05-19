@@ -295,11 +295,25 @@ func main() {
 
 	// 6) Режим рынка и аномалии
 	anomaly2 := anomaly.DetectMarketAnomalies(candles)
-	regime := anomaly.EnhancedMarketRegimeClassification(candles)
+	regime, err := anomaly.EnhancedMarketRegimeClassification(candles)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to classify market regime")
+		regime = &models.MarketRegime{
+			Type:      "UNKNOWN",
+			Strength:  0,
+			Direction: "NEUTRAL",
+		}
+	}
 
 	// 7) Генерируем прогноз
-	direction, confidence, score, factors, _ := analyze.EnhancedPrediction(candles, indicators, mtfData, regime, anomaly2, &cfg)
-	fmt.Printf("Prediction: %s (conf=%s score=%.2f)\nFactors: %v\n", direction, confidence, score, factors)
+	prediction, err := analyze.EnhancedPrediction(
+		context.Background(), candles, indicators, mtfData, regime, anomaly2, &cfg)
+	if err != nil {
+		log.Error().Err(err).Msg("Prediction failed")
+	} else {
+		fmt.Printf("Prediction: %s (conf=%s score=%.2f)\nFactors: %v\n",
+			prediction.Direction, prediction.Confidence, prediction.Score, prediction.Factors)
+	}
 
 	// 8) Формируем prompt и шлём в OpenAI
 	//prompt := gpt.FormatPrompt(candles, cfg.Symbol)

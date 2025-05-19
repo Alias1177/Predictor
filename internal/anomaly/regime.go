@@ -1,6 +1,7 @@
 package anomaly
 
 import (
+	"fmt"
 	"math"
 
 	"github.com/Alias1177/Predictor/internal/utils"
@@ -31,7 +32,7 @@ func MarketStateHMM(candles []models.Candle, windowSize int) *models.MarketRegim
 	volatilities := make([]float64, len(returns)-windowSize+1)
 	for i := 0; i <= len(returns)-windowSize; i++ {
 		windowReturns := returns[i : i+windowSize]
-		volatilities[i] = calculateVolatility(windowReturns)
+		volatilities[i] = calculateReturnsVolatility(windowReturns)
 	}
 
 	// Рассчитываем среднее и стандартное отклонение волатильности для определения режимов
@@ -105,18 +106,71 @@ func MarketStateHMM(candles []models.Candle, windowSize int) *models.MarketRegim
 	return regime
 }
 
-// Оставляем существующую функцию EnhancedMarketRegimeClassification для совместимости
-func EnhancedMarketRegimeClassification(candles []models.Candle) *models.MarketRegime {
-	// Используем новую реализацию для существующего интерфейса
-	return MarketStateHMM(candles, 14)
+// Удаляем старые функции calculateMarketFeatures и calculateVolumeChange
+
+// Улучшенная функция определения режима
+func EnhancedMarketRegimeClassification(candles []models.Candle) (*models.MarketRegime, error) {
+	if len(candles) < 50 {
+		return &models.MarketRegime{
+			Type:      "UNKNOWN",
+			Strength:  0,
+			Direction: "NEUTRAL",
+		}, nil
+	}
+
+	features, err := utils.CalculateMarketFeatures(candles)
+	if err != nil {
+		return nil, fmt.Errorf("failed to calculate market features: %w", err)
+	}
+
+	// Определяем режим на основе признаков
+	regime := &models.MarketRegime{}
+
+	// Анализ волатильности
+	volatility := features[0]
+	if volatility > 0.02 {
+		regime.Type = "VOLATILE"
+		regime.VolatilityLevel = "HIGH"
+	} else if volatility < 0.005 {
+		regime.Type = "RANGING"
+		regime.VolatilityLevel = "LOW"
+	} else {
+		regime.Type = "TRENDING"
+		regime.VolatilityLevel = "NORMAL"
+	}
+
+	// Анализ тренда
+	trend := features[1]
+	if math.Abs(trend) > 0.01 {
+		if trend > 0 {
+			regime.Direction = "BULLISH"
+		} else {
+			regime.Direction = "BEARISH"
+		}
+		regime.Strength = math.Min(math.Abs(trend)*10, 1.0)
+	} else {
+		regime.Direction = "NEUTRAL"
+		regime.Strength = 0.3
+	}
+
+	// Анализ моментума
+	momenta := features[2]
+	if momenta > 70 {
+		regime.MomentumStrength = 0.8
+	} else if momenta < 30 {
+		regime.MomentumStrength = 0.2
+	} else {
+		regime.MomentumStrength = 0.5
+	}
+
+	return regime, nil
 }
 
-func calculateVolatility(returns []float64) float64 {
+func calculateReturnsVolatility(returns []float64) float64 {
 	if len(returns) == 0 {
 		return 0
 	}
 
-	// Рассчитываем стандартное отклонение доходностей
 	mean := 0.0
 	for _, r := range returns {
 		mean += r
@@ -133,7 +187,6 @@ func calculateVolatility(returns []float64) float64 {
 	}
 
 	variance /= float64(len(returns) - 1)
-
 	return math.Sqrt(variance)
 }
 

@@ -14,6 +14,7 @@ import (
 
 	"context"
 	"fmt"
+	"log"
 	"math"
 	"time"
 )
@@ -79,7 +80,15 @@ func RunBacktest(ctx context.Context, client *config.Client, config *models.Conf
 		indicators := calculate.CalculateAllIndicators(testWindow, config)
 
 		// Получаем рыночный режим и аномалии
-		regime := anomaly.EnhancedMarketRegimeClassification(testWindow)
+		regime, err := anomaly.EnhancedMarketRegimeClassification(testWindow)
+		if err != nil {
+			log.Printf("Failed to classify market regime: %v", err)
+			regime = &models.MarketRegime{
+				Type:      "UNKNOWN",
+				Strength:  0,
+				Direction: "NEUTRAL",
+			}
+		}
 		anomaly := anomaly.DetectMarketAnomalies(testWindow)
 
 		// Получаем мультитаймфреймовые данные
@@ -88,8 +97,16 @@ func RunBacktest(ctx context.Context, client *config.Client, config *models.Conf
 		}
 
 		// Генерируем прогноз
-		direction, confidence, score, factors, _ := analyze.EnhancedPrediction(
-			testWindow, indicators, mtfData, regime, anomaly, config)
+		prediction, err := analyze.EnhancedPrediction(
+			ctx, testWindow, indicators, mtfData, regime, anomaly, config)
+		if err != nil {
+			log.Printf("Prediction failed: %v", err)
+			continue
+		}
+		direction := prediction.Direction
+		confidence := prediction.Confidence
+		score := prediction.Score
+		factors := prediction.Factors
 
 		// Создаем запись о прогнозе
 		result := models.PredictionResult{

@@ -1,24 +1,36 @@
 package analyze
 
 import (
+	"context"
 	"fmt"
-	"github.com/Alias1177/Predictor/internal/calculate"
 	"math"
 
+	"github.com/Alias1177/Predictor/internal/calculate"
 	"github.com/Alias1177/Predictor/internal/patterns"
+	"github.com/Alias1177/Predictor/internal/utils"
 	"github.com/Alias1177/Predictor/models"
 )
 
+// EnhancedPrediction выполняет улучшенный анализ и предсказание
 func EnhancedPrediction(
+	ctx context.Context,
 	candles []models.Candle,
 	indicators *models.TechnicalIndicators,
 	mtfData map[string][]models.Candle,
 	regime *models.MarketRegime,
 	anomaly *models.AnomalyDetection,
-	config *models.Config) (string, string, float64, []string, *models.TradingSuggestion) {
+	cfg *models.Config) (*models.Prediction, error) {
+
+	// Обновляем веса на основе исторических данных
+	if cfg.EnableBacktest {
+		results, err := utils.RunBacktest(ctx, candles, cfg)
+		if err == nil && results != nil {
+			utils.UpdateFactorWeights(results.DetailedResults)
+		}
+	}
 
 	// 1. Multi-timeframe trend alignment
-	trendDirection, trendStrength := patterns.DetectTrendAlignment(mtfData, config)
+	trendDirection, trendStrength := patterns.DetectTrendAlignment(mtfData, cfg)
 
 	// 2. Price action patterns
 	patterns2 := patterns.IdentifyPriceActionPatterns(candles)
@@ -268,7 +280,6 @@ func EnhancedPrediction(
 	}
 
 	// If we don't have at least 2 factors, add more generic ones
-	// If we don't have at least 2 factors, add more generic ones
 	if len(factors) < 2 {
 		if direction == "UP" {
 			if indicators.MACDHist > 0 {
@@ -387,6 +398,16 @@ func EnhancedPrediction(
 		}
 	}
 
-	return direction, confidence, netScore, factors, tradingSuggestion
+	// Применяем веса к факторам
+	for i := range factors {
+		factors[i] = fmt.Sprintf("%s (%.2f)", factors[i], utils.GetFactorWeight(factors[i]))
+	}
 
+	return &models.Prediction{
+		Direction:         direction,
+		Confidence:        confidence,
+		Score:             netScore,
+		Factors:           factors,
+		TradingSuggestion: tradingSuggestion,
+	}, nil
 }

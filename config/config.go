@@ -109,13 +109,20 @@ func (c *Client) GetCandles(ctx context.Context) ([]models.Candle, error) {
 
 	var candles []models.Candle
 	for _, v := range data.Values {
+		timestamp, err := time.Parse("2006-01-02 15:04:05", v.Datetime)
+		if err != nil {
+			c.logger.Error().Err(err).Str("datetime", v.Datetime).Msg("Error parsing datetime")
+			continue
+		}
 		candles = append(candles, models.Candle{
-			Datetime: v.Datetime,
-			Open:     v.Open,
-			High:     v.High,
-			Low:      v.Low,
-			Close:    v.Close,
-			Volume:   v.Volume,
+			Symbol:    c.config.Symbol,
+			TimeFrame: c.config.Interval,
+			Open:      v.Open,
+			High:      v.High,
+			Low:       v.Low,
+			Close:     v.Close,
+			Volume:    v.Volume,
+			Timestamp: timestamp,
 		})
 	}
 
@@ -203,13 +210,20 @@ func (c *Client) GetHistoricalCandles(ctx context.Context, days int) ([]models.C
 
 	var candles []models.Candle
 	for _, v := range data.Values {
+		timestamp, err := time.Parse("2006-01-02 15:04:05", v.Datetime)
+		if err != nil {
+			c.logger.Error().Err(err).Str("datetime", v.Datetime).Msg("Error parsing datetime")
+			continue
+		}
 		candles = append(candles, models.Candle{
-			Datetime: v.Datetime,
-			Open:     v.Open,
-			High:     v.High,
-			Low:      v.Low,
-			Close:    v.Close,
-			Volume:   v.Volume,
+			Symbol:    c.config.Symbol,
+			TimeFrame: c.config.Interval,
+			Open:      v.Open,
+			High:      v.High,
+			Low:       v.Low,
+			Close:     v.Close,
+			Volume:    v.Volume,
+			Timestamp: timestamp,
 		})
 	}
 

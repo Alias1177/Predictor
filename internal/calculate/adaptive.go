@@ -26,7 +26,15 @@ func AdaptIndicatorParameters(candles []models.Candle, config *models.Config) *m
 	}
 
 	// Проверка рыночного режима
-	regime := anomaly.EnhancedMarketRegimeClassification(candles)
+	regime, err := anomaly.EnhancedMarketRegimeClassification(candles)
+	if err != nil {
+		// В случае ошибки используем значения по умолчанию
+		regime = &models.MarketRegime{
+			Type:      "UNKNOWN",
+			Strength:  0,
+			Direction: "NEUTRAL",
+		}
+	}
 
 	// Корректировка периода RSI на основе волатильности
 	if volatilityRatio > 1.5 {
@@ -79,7 +87,15 @@ func AdaptIndicatorParametersML(candles []models.Candle, config *models.Config) 
 	adaptedConfig := *config
 
 	// Определяем рыночный режим
-	regime := anomaly.EnhancedMarketRegimeClassification(candles)
+	regime, err := anomaly.EnhancedMarketRegimeClassification(candles)
+	if err != nil {
+		// В случае ошибки используем значения по умолчанию
+		regime = &models.MarketRegime{
+			Type:      "UNKNOWN",
+			Strength:  0,
+			Direction: "NEUTRAL",
+		}
+	}
 
 	// Получаем матрицу адаптивных параметров
 	params := getOptimizedParameters(regime.Type, regime.VolatilityLevel)
