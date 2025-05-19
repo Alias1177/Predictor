@@ -112,9 +112,10 @@ func MarketStateHMM(candles []models.Candle, windowSize int) *models.MarketRegim
 func EnhancedMarketRegimeClassification(candles []models.Candle) (*models.MarketRegime, error) {
 	if len(candles) < 50 {
 		return &models.MarketRegime{
-			Type:      "UNKNOWN",
-			Strength:  0,
-			Direction: "NEUTRAL",
+			Type:            "UNKNOWN",
+			Strength:        0,
+			Direction:       "NEUTRAL",
+			VolatilityLevel: "NORMAL",
 		}, nil
 	}
 
@@ -161,6 +162,17 @@ func EnhancedMarketRegimeClassification(candles []models.Candle) (*models.Market
 		regime.MomentumStrength = 0.2
 	} else {
 		regime.MomentumStrength = 0.5
+	}
+
+	// Устанавливаем VolatilityLevel для всех типов режимов
+	if regime.VolatilityLevel == "" {
+		if volatility > 0.02 {
+			regime.VolatilityLevel = "HIGH"
+		} else if volatility < 0.005 {
+			regime.VolatilityLevel = "LOW"
+		} else {
+			regime.VolatilityLevel = "NORMAL"
+		}
 	}
 
 	return regime, nil

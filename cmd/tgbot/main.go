@@ -731,9 +731,13 @@ func runPrediction(bot *tgbotapi.BotAPI, chatID int64, state *UserState, logger 
 	if err != nil {
 		logger.Error().Err(err).Msg("Failed to classify market regime")
 		regime = &models.MarketRegime{
-			Type:      "UNKNOWN",
-			Strength:  0,
-			Direction: "NEUTRAL",
+			Type:             "UNKNOWN",
+			Strength:         0,
+			Direction:        "NEUTRAL",
+			VolatilityLevel:  "NORMAL",
+			MomentumStrength: 0,
+			LiquidityRating:  "NORMAL",
+			PriceStructure:   "UNKNOWN",
 		}
 	}
 	anomalyData := anomaly.DetectMarketAnomalies(candles)
