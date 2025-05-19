@@ -1484,22 +1484,47 @@ func determineMarketRegime(candles []models.Candle) string {
 		return "NEUTRAL"
 	}
 
-	// Расчет волатильности
-	volatility := calculateVolatility(candles)
+	// Расчет адаптивных пороговых значений на основе исторических данных
+	historicalVolatilities := make([]float64, 0)
+	historicalTrends := make([]float64, 0)
+	historicalVolumes := make([]float64, 0)
 
-	// Расчет тренда
-	trend := calculateTrend(candles)
+	windowSize := 20
+	for i := windowSize; i < len(candles); i++ {
+		window := candles[i-windowSize : i]
 
-	// Расчет силы тренда
-	trendStrength := calculateTrendStrength(candles)
+		// Волатильность
+		vol := calculateVolatility(window)
+		historicalVolatilities = append(historicalVolatilities, vol)
 
-	// Расчет объема
-	volumeStrength := calculateVolumeStrength(candles)
+		// Тренд
+		trend := calculateTrend(window)
+		historicalTrends = append(historicalTrends, trend)
 
-	// Определение режима на основе комбинации факторов
-	if volatility > 0.02 { // Высокая волатильность
-		if math.Abs(trend) > 0.01 {
-			if trend > 0 {
+		// Объем
+		volStrength := calculateVolumeStrength(window)
+		historicalVolumes = append(historicalVolumes, volStrength)
+	}
+
+	// Расчет средних значений и стандартных отклонений
+	meanVol, stdVol := calculateMeanStd(historicalVolatilities)
+	meanTrend, stdTrend := calculateMeanStd(historicalTrends)
+	meanVolume, stdVolume := calculateMeanStd(historicalVolumes)
+
+	// Текущие значения
+	currentVol := calculateVolatility(candles[len(candles)-windowSize:])
+	currentTrend := calculateTrend(candles[len(candles)-windowSize:])
+	currentVolume := calculateVolumeStrength(candles[len(candles)-windowSize:])
+
+	// Адаптивные пороговые значения
+	volatilityThreshold := meanVol + stdVol*0.7
+	trendThreshold := math.Max(0.003, math.Abs(meanTrend)+stdTrend*0.7)
+	volumeThreshold := meanVolume + stdVolume*0.5
+
+	// 1. VOLATILE_BULLISH/BEARISH: ещё более чувствительный порог
+	if currentVol > volatilityThreshold*0.7 {
+		if math.Abs(currentTrend) > trendThreshold*0.7 {
+			if currentTrend > 0 {
 				return "VOLATILE_BULLISH"
 			}
 			return "VOLATILE_BEARISH"
@@ -1507,27 +1532,26 @@ func determineMarketRegime(candles []models.Candle) string {
 		return "VOLATILE"
 	}
 
-	if trendStrength > 0.6 { // Сильный тренд
-		if trend > 0 {
+	// 2. ACCUMULATION/DISTRIBUTION: только если волатильность не выше среднего + 0.3*std
+	if currentVolume > volumeThreshold*0.85 && currentVol < meanVol+stdVol*0.3 {
+		if currentTrend > trendThreshold*0.7 {
+			return "ACCUMULATION"
+		} else if currentTrend < -trendThreshold*0.7 {
+			return "DISTRIBUTION"
+		}
+	}
+
+	// 3. TRENDING
+	if math.Abs(currentTrend) > trendThreshold {
+		if currentTrend > 0 {
 			return "TRENDING_UP"
 		}
 		return "TRENDING_DOWN"
 	}
 
-	if volumeStrength > 0.7 { // Высокий объем
-		if trend > 0 {
-			return "ACCUMULATION"
-		}
-		return "DISTRIBUTION"
-	}
-
-	if math.Abs(trend) < 0.005 { // Боковой тренд
+	// 4. RANGING: теперь просто currentVol < meanVol
+	if currentVol < meanVol {
 		return "RANGING"
-	}
-
-	// Определение нейтрального режима
-	if math.Abs(trend) < 0.01 && volatility < 0.01 {
-		return "NEUTRAL"
 	}
 
 	return "NEUTRAL"
@@ -1665,4 +1689,28 @@ func AnalyzeMarket(candles []models.Candle, marketCandles []models.Candle) *mode
 	analysis.Volatility = getVolatilityCategory(volatility)
 
 	return analysis
+}
+
+// calculateMeanStd рассчитывает среднее значение и стандартное отклонение
+func calculateMeanStd(values []float64) (float64, float64) {
+	if len(values) == 0 {
+		return 0, 0
+	}
+
+	// Расчет среднего
+	mean := 0.0
+	for _, v := range values {
+		mean += v
+	}
+	mean /= float64(len(values))
+
+	// Расчет стандартного отклонения
+	variance := 0.0
+	for _, v := range values {
+		variance += math.Pow(v-mean, 2)
+	}
+	variance /= float64(len(values))
+	std := math.Sqrt(variance)
+
+	return mean, std
 }

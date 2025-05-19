@@ -129,6 +129,8 @@ func EnhancedMarketRegimeClassification(candles []models.Candle) (*models.Market
 
 	// Определяем режим на основе признаков
 	regime := &models.MarketRegime{
+		Type:             "UNKNOWN",
+		Direction:        "NEUTRAL",
 		LiquidityRating:  "NORMAL",
 		PriceStructure:   "UNKNOWN",
 		MomentumStrength: 0.5,
@@ -139,12 +141,17 @@ func EnhancedMarketRegimeClassification(candles []models.Candle) (*models.Market
 	if volatility > 0.02 {
 		regime.Type = "VOLATILE"
 		regime.VolatilityLevel = "HIGH"
+		regime.Strength = math.Min(volatility*50, 1.0)
 	} else if volatility < 0.005 {
 		regime.Type = "RANGING"
 		regime.VolatilityLevel = "LOW"
+		// Сила режима для RANGING зависит от стабильности цены
+		priceStability := 1.0 - (volatility / 0.005)
+		regime.Strength = math.Min(priceStability*1.2, 1.0)
 	} else {
 		regime.Type = "TRENDING"
 		regime.VolatilityLevel = "NORMAL"
+		regime.Strength = 0.5
 	}
 
 	// Анализ тренда
@@ -157,18 +164,26 @@ func EnhancedMarketRegimeClassification(candles []models.Candle) (*models.Market
 			regime.Direction = "BEARISH"
 			regime.PriceStructure = "TRENDING_DOWN"
 		}
+		// Для трендовых режимов сила зависит от силы тренда
 		regime.Strength = math.Min(math.Abs(trend)*10, 1.0)
 	} else {
 		regime.Direction = "NEUTRAL"
-		regime.Strength = 0.3
+		// Для нетрендовых режимов сохраняем силу от волатильности
+		regime.Strength = math.Max(regime.Strength, 0.3)
 	}
 
 	// Анализ моментума
 	momenta := features[2]
 	if momenta > 70 {
 		regime.MomentumStrength = 0.8
+		if regime.Direction == "NEUTRAL" {
+			regime.Direction = "BULLISH"
+		}
 	} else if momenta < 30 {
 		regime.MomentumStrength = 0.2
+		if regime.Direction == "NEUTRAL" {
+			regime.Direction = "BEARISH"
+		}
 	} else {
 		regime.MomentumStrength = 0.5
 	}

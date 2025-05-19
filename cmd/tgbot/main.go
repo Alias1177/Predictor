@@ -774,7 +774,7 @@ func runPrediction(bot *tgbotapi.BotAPI, chatID int64, state *UserState, logger 
 	resultText.WriteString(fmt.Sprintf("*Score:* %.2f\n\n", prediction.Score))
 
 	// Market regime
-	resultText.WriteString(fmt.Sprintf("*Market Regime:* %s (%s)\n", regime.Type, regime.Direction))
+	resultText.WriteString(fmt.Sprintf("*Market Regime:* %s\n", regime.Type))
 	resultText.WriteString(fmt.Sprintf("*Regime Strength:* %.2f\n", regime.Strength))
 	resultText.WriteString(fmt.Sprintf("*Volatility:* %s\n\n", regime.VolatilityLevel))
 
