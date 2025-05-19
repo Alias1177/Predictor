@@ -904,7 +904,7 @@ type FundamentalAnalysis struct {
 }
 
 // fetchNews получает новости через API
-func fetchNews(symbol string) ([]models.NewsItem, error) {
+func fetchNews(_ string) ([]models.NewsItem, error) {
 	apiKey := "cv9mclpr01qpd9s82rngcv9mclpr01qpd9s82ro0"
 	apiUrl := "https://finnhub.io/api/v1/news"
 
@@ -926,7 +926,7 @@ func fetchNews(symbol string) ([]models.NewsItem, error) {
 }
 
 // analyzeNews анализирует новости и их влияние на рынок
-func analyzeNews(symbol string, timeframe string) *models.NewsAnalysis {
+func analyzeNews(symbol string, _ string) *models.NewsAnalysis {
 	analysis := &models.NewsAnalysis{
 		MarketImpact: make(map[string]float64),
 	}
@@ -1139,7 +1139,7 @@ func calculateVolatilityRisk(candles []models.Candle) float64 {
 }
 
 // determineDirection определяет направление движения на основе всех анализов
-func determineDirection(sentiment *models.MarketSentiment, correlations *models.CorrelationAnalysis,
+func determineDirection(sentiment *models.MarketSentiment, _ *models.CorrelationAnalysis,
 	lLiquidity *models.LiquidityAnalysis, volume *models.VolumeAnalysis,
 	microstructure *models.MicrostructureAnalysis, news *models.NewsAnalysis,
 	fundamentals *models.FundamentalAnalysis) string {
@@ -1261,7 +1261,8 @@ func calculateVolatility(candles []models.Candle) float64 {
 	// Годовая волатильность (предполагаем 252 торговых дня)
 	annualizedVol := math.Sqrt(variance) * math.Sqrt(252.0)
 
-	return annualizedVol
+	// Нормализация волатильности для 5-минутного таймфрейма
+	return annualizedVol * math.Sqrt(5.0/1440.0) // 5 минут / 1440 минут в дне
 }
 
 // calculateTrend рассчитывает тренд
@@ -1374,7 +1375,7 @@ func calculateRegimeStrength(candles []models.Candle) float64 {
 }
 
 // fetchEconomicData получает экономические данные
-func fetchEconomicData(symbol string) (map[string]float64, error) {
+func fetchEconomicData(_ string) (map[string]float64, error) {
 	// TODO: В будущем можно добавить реальный API для получения экономических данных
 	// Сейчас возвращаем тестовые данные
 
@@ -1421,7 +1422,7 @@ func calculateLiquidityRisk(candles []models.Candle) float64 {
 }
 
 // calculateCorrelationRisk рассчитывает риск корреляции
-func calculateCorrelationRisk(symbol string) float64 {
+func calculateCorrelationRisk(_ string) float64 {
 	// TODO: В будущем можно добавить реальный API для получения исторических данных
 	// Сейчас используем фиксированные значения для тестирования
 
@@ -1480,7 +1481,7 @@ func calculateNewsRisk(symbol string) float64 {
 // determineMarketRegime определяет текущий режим рынка
 func determineMarketRegime(candles []models.Candle) string {
 	if len(candles) < 20 {
-		return "UNKNOWN"
+		return "NEUTRAL"
 	}
 
 	// Расчет волатильности
@@ -1529,7 +1530,19 @@ func determineMarketRegime(candles []models.Candle) string {
 		return "NEUTRAL"
 	}
 
-	return "UNKNOWN"
+	return "NEUTRAL"
+}
+
+// getVolatilityCategory определяет категорию волатильности
+func getVolatilityCategory(volatility float64) string {
+	switch {
+	case volatility < 0.005:
+		return "LOW"
+	case volatility < 0.015:
+		return "MEDIUM"
+	default:
+		return "HIGH"
+	}
 }
 
 // analyzeEconomicIndicators анализирует экономические индикаторы
@@ -1641,9 +1654,15 @@ func AnalyzeMarket(candles []models.Candle, marketCandles []models.Candle) *mode
 	fundamentals := analyzeFundamentals(analysis.Symbol, candles)
 	analysis.Fundamentals = fundamentals
 
-	// Определение направления и уверенности с учетом новых факторов
+	// Определение направления и уверенности
 	analysis.Direction = determineDirection(sentiment, correlations, lLiquidity, volume, microstructure, news, fundamentals)
 	analysis.Confidence = calculateConfidence(sentiment, correlations, lLiquidity, volume, microstructure, news, fundamentals)
+
+	// Добавляем форматированный вывод режима и волатильности
+	volatility := calculateVolatility(candles)
+	analysis.MarketRegime = fmt.Sprintf("%s (%s)", determineMarketRegime(candles), getVolatilityCategory(volatility))
+	analysis.RegimeStrength = calculateRegimeStrength(candles)
+	analysis.Volatility = getVolatilityCategory(volatility)
 
 	return analysis
 }

@@ -292,21 +292,24 @@ type Prediction struct {
 	TradingSuggestion *TradingSuggestion
 }
 
-// MarketAnalysis представляет результаты анализа рынка
+// MarketAnalysis представляет полный анализ рынка
 type MarketAnalysis struct {
-	Symbol          string                  `json:"symbol"`           // Символ инструмента
-	TimeFrame       string                  `json:"timeframe"`        // Таймфрейм
-	LastPrice       float64                 `json:"last_price"`       // Последняя цена
-	LastUpdated     time.Time               `json:"last_updated"`     // Время последнего обновления
-	Direction       string                  `json:"direction"`        // Направление движения (bullish/bearish/neutral)
-	Confidence      float64                 `json:"confidence"`       // Уверенность в предсказании (0-1)
-	MarketSentiment *MarketSentiment        `json:"market_sentiment"` // Анализ настроений рынка
-	Correlations    *CorrelationAnalysis    `json:"correlations"`     // Анализ корреляций
-	Liquidity       *LiquidityAnalysis      `json:"liquidity"`        // Анализ ликвидности
-	Volume          *VolumeAnalysis         `json:"volume"`           // Анализ объемов
-	Microstructure  *MicrostructureAnalysis `json:"microstructure"`   // Анализ микроструктуры
-	News            *NewsAnalysis           `json:"news"`             // Анализ новостей
-	Fundamentals    *FundamentalAnalysis    `json:"fundamentals"`     // Фундаментальный анализ
+	Symbol          string                  `json:"symbol"`
+	TimeFrame       string                  `json:"timeframe"`
+	LastPrice       float64                 `json:"last_price"`
+	LastUpdated     time.Time               `json:"last_updated"`
+	Direction       string                  `json:"direction"`
+	Confidence      float64                 `json:"confidence"`
+	MarketRegime    string                  `json:"market_regime"`
+	RegimeStrength  float64                 `json:"regime_strength"`
+	Volatility      string                  `json:"volatility"`
+	MarketSentiment *MarketSentiment        `json:"market_sentiment"`
+	Correlations    *CorrelationAnalysis    `json:"correlations"`
+	Liquidity       *LiquidityAnalysis      `json:"liquidity"`
+	Volume          *VolumeAnalysis         `json:"volume"`
+	Microstructure  *MicrostructureAnalysis `json:"microstructure"`
+	News            *NewsAnalysis           `json:"news"`
+	Fundamentals    *FundamentalAnalysis    `json:"fundamentals"`
 }
 
 // MarketSentiment представляет настроения рынка
