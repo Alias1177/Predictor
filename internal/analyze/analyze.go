@@ -1333,10 +1333,44 @@ func calculateTrendStrength(candles []models.Candle) float64 {
 	return math.Min(dx/100, 1.0)
 }
 
-// calculateVolatilityStrength рассчитывает силу волатильности
-func calculateVolatilityStrength(candles []models.Candle) float64 {
+// calculateRegimeStrength рассчитывает силу текущего режима
+func calculateRegimeStrength(candles []models.Candle) float64 {
+	if len(candles) < 20 {
+		return 0.0
+	}
+
+	// Расчет силы тренда
+	trendStrength := calculateTrendStrength(candles)
+
+	// Расчет силы волатильности
 	volatility := calculateVolatility(candles)
-	return math.Min(volatility*10, 1.0)
+	volatilityStrength := math.Min(volatility*10, 1.0)
+
+	// Расчет силы объема
+	volumeStrength := calculateVolumeStrength(candles)
+
+	// Расчет консистентности движения
+	var consistency float64
+	var upMoves, downMoves int
+	for i := 1; i < len(candles); i++ {
+		if candles[i].Close > candles[i-1].Close {
+			upMoves++
+		} else if candles[i].Close < candles[i-1].Close {
+			downMoves++
+		}
+	}
+	totalMoves := upMoves + downMoves
+	if totalMoves > 0 {
+		consistency = math.Abs(float64(upMoves-downMoves)) / float64(totalMoves)
+	}
+
+	// Взвешенная сумма всех факторов
+	strength := trendStrength*0.3 +
+		volatilityStrength*0.2 +
+		volumeStrength*0.2 +
+		consistency*0.3
+
+	return math.Min(strength, 1.0)
 }
 
 // fetchEconomicData получает экономические данные
@@ -1455,35 +1489,47 @@ func determineMarketRegime(candles []models.Candle) string {
 	// Расчет тренда
 	trend := calculateTrend(candles)
 
-	// Определение режима
-	if volatility > 0.02 {
+	// Расчет силы тренда
+	trendStrength := calculateTrendStrength(candles)
+
+	// Расчет объема
+	volumeStrength := calculateVolumeStrength(candles)
+
+	// Определение режима на основе комбинации факторов
+	if volatility > 0.02 { // Высокая волатильность
+		if math.Abs(trend) > 0.01 {
+			if trend > 0 {
+				return "VOLATILE_BULLISH"
+			}
+			return "VOLATILE_BEARISH"
+		}
 		return "VOLATILE"
-	} else if math.Abs(trend) > 0.01 {
+	}
+
+	if trendStrength > 0.6 { // Сильный тренд
 		if trend > 0 {
 			return "TRENDING_UP"
 		}
 		return "TRENDING_DOWN"
 	}
-	return "RANGING"
-}
 
-// calculateRegimeStrength рассчитывает силу текущего режима
-func calculateRegimeStrength(candles []models.Candle) float64 {
-	if len(candles) < 20 {
-		return 0.0
+	if volumeStrength > 0.7 { // Высокий объем
+		if trend > 0 {
+			return "ACCUMULATION"
+		}
+		return "DISTRIBUTION"
 	}
 
-	// Расчет силы тренда
-	trendStrength := calculateTrendStrength(candles)
+	if math.Abs(trend) < 0.005 { // Боковой тренд
+		return "RANGING"
+	}
 
-	// Расчет силы волатильности
-	volatilityStrength := calculateVolatilityStrength(candles)
+	// Определение нейтрального режима
+	if math.Abs(trend) < 0.01 && volatility < 0.01 {
+		return "NEUTRAL"
+	}
 
-	// Расчет силы объема
-	volumeStrength := calculateVolumeStrength(candles)
-
-	// Взвешенная сумма
-	return trendStrength*0.4 + volatilityStrength*0.3 + volumeStrength*0.3
+	return "UNKNOWN"
 }
 
 // analyzeEconomicIndicators анализирует экономические индикаторы
