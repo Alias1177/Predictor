@@ -231,8 +231,8 @@ func handleMessage(bot *tgbotapi.BotAPI, message *tgbotapi.Message, logger *zero
 			}
 
 			if sub == nil || sub.Status != models.PaymentStatusAccepted {
-				// User needs to pay for subscription
-				msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("To run predictions you need a premium subscription. The subscription costs $9.99 per month."))
+			
+				msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("To run predictions you need a premium subscription. The subscription costs $14.99 per month."))
 				msg.ReplyMarkup = getPaymentKeyboard()
 				bot.Send(msg)
 				state.Stage = StageAwaitingPayment
@@ -421,7 +421,7 @@ func handleCallback(bot *tgbotapi.BotAPI, callback *tgbotapi.CallbackQuery, logg
 
 			if sub == nil || sub.Status != models.PaymentStatusAccepted {
 				// User needs to pay for subscription
-				msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("To run predictions you need a premium subscription. The subscription costs $9.99 per month."))
+				msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("To run predictions you need a premium subscription. The subscription costs $14.99 per month."))
 				msg.ReplyMarkup = getPaymentKeyboard()
 				bot.Send(msg)
 				state.Stage = StageAwaitingPayment
@@ -609,7 +609,7 @@ func getMainMenuKeyboard(isPremium bool) tgbotapi.ReplyKeyboardMarkup {
 func getPaymentKeyboard() tgbotapi.InlineKeyboardMarkup {
 	return tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("Subscribe ($9.99/month)", "subscribe"),
+			tgbotapi.NewInlineKeyboardButtonData("Subscribe ($14.99/month)", "subscribe"),
 		),
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("← Back to Main Menu", "main_menu"),
