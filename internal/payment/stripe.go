@@ -303,3 +303,69 @@ func (s *StripeService) FindSubscriptionByUserID(userID int64) (*stripe.Subscrip
 
 	return nil, fmt.Errorf("no active subscription found for user %d", userID)
 }
+
+// FindSubscriptionAdvanced attempts to find subscription using multiple methods
+func (s *StripeService) FindSubscriptionAdvanced(userID int64, createdAfter int64) (*stripe.Subscription, error) {
+	fmt.Printf("Starting advanced search for user %d, created after %d\n", userID, createdAfter)
+
+	// First try metadata search
+	if sub, err := s.FindSubscriptionByUserID(userID); err == nil {
+		fmt.Printf("Found subscription via metadata: %s\n", sub.ID)
+		return sub, nil
+	}
+
+	// Try searching by creation time (recent subscriptions)
+	params := &stripe.SubscriptionListParams{
+		Status: stripe.String("active"),
+	}
+	params.Filters.AddFilter("limit", "", "50")
+	if createdAfter > 0 {
+		params.Filters.AddFilter("created[gte]", "", fmt.Sprintf("%d", createdAfter))
+	}
+
+	userIDStr := fmt.Sprintf("%d", userID)
+
+	fmt.Printf("Searching through active subscriptions created after %d\n", createdAfter)
+
+	iter := subscription.List(params)
+	var candidates []*stripe.Subscription
+
+	for iter.Next() {
+		sub := iter.Subscription()
+
+		fmt.Printf("Checking subscription %s, created: %d\n", sub.ID, sub.Created)
+
+		// Check metadata first
+		if sub.Metadata != nil {
+			if metaUserID, exists := sub.Metadata["user_id"]; exists && metaUserID == userIDStr {
+				fmt.Printf("Found subscription via metadata in time range: %s\n", sub.ID)
+				return sub, nil
+			}
+
+			// Log all metadata for debugging
+			fmt.Printf("Subscription %s metadata: %+v\n", sub.ID, sub.Metadata)
+		}
+
+		// Collect recent subscriptions as candidates
+		if sub.Created >= createdAfter {
+			candidates = append(candidates, sub)
+		}
+	}
+
+	if iter.Err() != nil {
+		return nil, iter.Err()
+	}
+
+	// If we found recent subscriptions but no metadata match
+	if len(candidates) > 0 {
+		fmt.Printf("Found %d candidate subscriptions, but no metadata match\n", len(candidates))
+
+		// Return the most recent one if there's only one candidate
+		if len(candidates) == 1 {
+			fmt.Printf("Only one candidate found, assuming it's the right one: %s\n", candidates[0].ID)
+			return candidates[0], nil
+		}
+	}
+
+	return nil, fmt.Errorf("no matching subscription found for user %d", userID)
+}

@@ -403,10 +403,13 @@ Timeframe: %s`,
 		searchMsg := tgbotapi.NewMessage(chatID, "🔍 Searching for your subscription in Stripe...")
 		sentMsg, _ := bot.Send(searchMsg)
 
-		// Try to find subscription by user ID
-		stripeSubscription, err := stripeService.FindSubscriptionByUserID(userID)
+		// Calculate search timeframe (subscription created date - 1 hour)
+		searchAfter := sub.CreatedAt.Unix() - 3600 // 1 hour before subscription creation
+
+		// Try advanced search with creation time
+		stripeSubscription, err := stripeService.FindSubscriptionAdvanced(userID, searchAfter)
 		if err != nil {
-			editMsg := tgbotapi.NewEditMessageText(chatID, sentMsg.MessageID, fmt.Sprintf("❌ Could not find subscription: %v", err))
+			editMsg := tgbotapi.NewEditMessageText(chatID, sentMsg.MessageID, fmt.Sprintf("❌ Could not find subscription: %v\n\nTry manual search in Stripe Dashboard:\nhttps://dashboard.stripe.com/subscriptions\n\nLook for subscription created around: %s", err, sub.CreatedAt.Format("2006-01-02 15:04:05")))
 			bot.Send(editMsg)
 			return
 		}
@@ -419,11 +422,106 @@ Timeframe: %s`,
 		}
 
 		// Success message
-		editMsg := tgbotapi.NewEditMessageText(chatID, sentMsg.MessageID, fmt.Sprintf("✅ Found and linked subscription!\nStripe ID: %s\n\nNow you can use 'Cancel Subscription' button.", stripeSubscription.ID))
+		editMsg := tgbotapi.NewEditMessageText(chatID, sentMsg.MessageID, fmt.Sprintf("✅ Found and linked subscription!\nStripe ID: %s\nCreated: %s\n\nNow you can use 'Cancel Subscription' button.", stripeSubscription.ID, time.Unix(stripeSubscription.Created, 0).Format("2006-01-02 15:04:05")))
 		bot.Send(editMsg)
 	case "Cancel Subscription":
-		// Handle subscription cancellation
-		handleCancelSubscription(bot, userID, chatID, logger)
+		// Simple one-button subscription cancellation
+		logger.Info().Int64("user_id", userID).Msg("User requested subscription cancellation")
+
+		// Get subscription from database
+		sub, err := db.GetSubscription(userID)
+		if err != nil {
+			logger.Error().Err(err).Int64("user_id", userID).Msg("Error getting subscription from database")
+			msg := tgbotapi.NewMessage(chatID, "❌ Ошибка при получении подписки из базы данных")
+			bot.Send(msg)
+			return
+		}
+
+		if sub == nil {
+			logger.Warn().Int64("user_id", userID).Msg("No subscription found in database")
+			msg := tgbotapi.NewMessage(chatID, "❌ Подписка не найдена")
+			bot.Send(msg)
+			return
+		}
+
+		if sub.Status == "cancelled" {
+			msg := tgbotapi.NewMessage(chatID, "ℹ️ Подписка уже отменена")
+			bot.Send(msg)
+			return
+		}
+
+		// Send processing message
+		processingMsg := tgbotapi.NewMessage(chatID, "🔄 Отменяю подписку...")
+		sentMsg, _ := bot.Send(processingMsg)
+
+		var stripeSuccess bool = false
+		var stripeID string = ""
+
+		// Try to cancel in Stripe
+		if sub.StripeSubscriptionID != "" {
+			// Try with existing ID
+			if err := stripeService.CancelSubscription(sub.StripeSubscriptionID); err != nil {
+				if !strings.Contains(err.Error(), "No such subscription") && !strings.Contains(err.Error(), "already canceled") {
+					logger.Error().Err(err).Str("subscription_id", sub.StripeSubscriptionID).Msg("Failed to cancel existing subscription")
+				}
+			} else {
+				stripeSuccess = true
+				stripeID = sub.StripeSubscriptionID
+			}
+		}
+
+		// If no existing ID or cancellation failed, try to find subscription
+		if !stripeSuccess {
+			if stripeSubscription, err := stripeService.FindSubscriptionByUserID(userID); err == nil {
+				if err := stripeService.CancelSubscription(stripeSubscription.ID); err == nil {
+					stripeSuccess = true
+					stripeID = stripeSubscription.ID
+					// Update database with found ID
+					db.UpdateStripeSubscriptionID(userID, stripeSubscription.ID)
+				}
+			} else {
+				// Try advanced search
+				searchAfter := sub.CreatedAt.Unix() - 3600
+				if stripeSubscription, err := stripeService.FindSubscriptionAdvanced(userID, searchAfter); err == nil {
+					if err := stripeService.CancelSubscription(stripeSubscription.ID); err == nil {
+						stripeSuccess = true
+						stripeID = stripeSubscription.ID
+						// Update database with found ID
+						db.UpdateStripeSubscriptionID(userID, stripeSubscription.ID)
+					}
+				}
+			}
+		}
+
+		// Cancel in database
+		if err := db.CloseSubscription(userID); err != nil {
+			logger.Error().Err(err).Int64("user_id", userID).Msg("Error cancelling subscription in database")
+			editMsg := tgbotapi.NewEditMessageText(chatID, sentMsg.MessageID, "❌ Ошибка при отмене подписки в базе данных")
+			bot.Send(editMsg)
+			return
+		}
+
+		// Update user state
+		state.Stage = StageInitial
+		userStates[userID] = state
+
+		// Send result message
+		var resultMsg string
+		if stripeSuccess {
+			resultMsg = fmt.Sprintf("✅ Подписка успешно отменена!\n\n💳 Stripe ID: %s\n📱 Статус в боте: отменена\n\nСпасибо за использование нашего сервиса!", stripeID)
+		} else {
+			resultMsg = "⚠️ Подписка отменена в боте, но не найдена в Stripe.\n\n🔍 Проверьте Stripe Dashboard вручную:\nhttps://dashboard.stripe.com/subscriptions\n\nСпасибо за использование нашего сервиса!"
+		}
+
+		editMsg := tgbotapi.NewEditMessageText(chatID, sentMsg.MessageID, resultMsg)
+		bot.Send(editMsg)
+
+		// Show main menu
+		menuMsg := tgbotapi.NewMessage(chatID, "Главное меню:")
+		menuMsg.ReplyMarkup = getMainMenuKeyboard(false)
+		bot.Send(menuMsg)
+
+		logger.Info().Int64("user_id", userID).Bool("stripe_success", stripeSuccess).Str("stripe_id", stripeID).Msg("Subscription cancellation completed")
 	default:
 		// Handle other inputs based on current stage
 		switch state.Stage {
@@ -618,14 +716,7 @@ func handleCallback(bot *tgbotapi.BotAPI, callback *tgbotapi.CallbackQuery, logg
 		msg.ReplyMarkup = getMainMenuKeyboard(isPremiumUser(userID))
 		bot.Send(msg)
 		state.Stage = StageInitial
-	} else if data == "confirm_cancel" {
-		// Handle subscription cancellation confirmation
-		handleConfirmCancelSubscription(bot, userID, chatID, logger)
-	} else if data == "cancel_cancel" {
-		// User decided not to cancel
-		msg := tgbotapi.NewMessage(chatID, "Subscription cancellation cancelled. Your subscription remains active.")
-		msg.ReplyMarkup = getMainMenuKeyboard(true)
-		bot.Send(msg)
+
 	}
 }
 
@@ -1044,182 +1135,4 @@ func isPremiumUser(userID int64) bool {
 	}
 
 	return sub.Status == models.PaymentStatusAccepted
-}
-
-// handleCancelSubscription handles the cancellation of a subscription
-func handleCancelSubscription(bot *tgbotapi.BotAPI, userID, chatID int64, logger *zerolog.Logger) {
-	// Check subscription status
-	sub, err := db.GetSubscription(userID)
-	if err != nil {
-		logger.Error().Err(err).Int64("user_id", userID).Msg("Error retrieving subscription")
-		msg := tgbotapi.NewMessage(chatID, "Sorry, there was an error. Please try again later.")
-		bot.Send(msg)
-		return
-	}
-
-	if sub == nil {
-		msg := tgbotapi.NewMessage(chatID, "You don't have an active subscription.")
-		msg.ReplyMarkup = getMainMenuKeyboard(false)
-		bot.Send(msg)
-		return
-	}
-
-	if sub.Status != models.PaymentStatusAccepted {
-		msg := tgbotapi.NewMessage(chatID, "Your subscription is not active.")
-		msg.ReplyMarkup = getMainMenuKeyboard(false)
-		bot.Send(msg)
-		return
-	}
-
-	// Send confirmation message
-	msg := tgbotapi.NewMessage(chatID, "Are you sure you want to cancel your subscription? This action cannot be undone.")
-
-	keyboard := tgbotapi.NewInlineKeyboardMarkup(
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("✅ Yes, Cancel", "confirm_cancel"),
-			tgbotapi.NewInlineKeyboardButtonData("❌ No, Keep", "cancel_cancel"),
-		),
-	)
-	msg.ReplyMarkup = keyboard
-	bot.Send(msg)
-}
-
-// handleConfirmCancelSubscription handles the confirmation of subscription cancellation
-func handleConfirmCancelSubscription(bot *tgbotapi.BotAPI, userID, chatID int64, logger *zerolog.Logger) {
-	// Check subscription status
-	sub, err := db.GetSubscription(userID)
-	if err != nil {
-		logger.Error().Err(err).Int64("user_id", userID).Msg("Error retrieving subscription")
-		msg := tgbotapi.NewMessage(chatID, "Sorry, there was an error. Please try again later.")
-		bot.Send(msg)
-		return
-	}
-
-	if sub == nil || sub.Status != models.PaymentStatusAccepted {
-		msg := tgbotapi.NewMessage(chatID, "No active subscription found.")
-		msg.ReplyMarkup = getMainMenuKeyboard(false)
-		bot.Send(msg)
-		return
-	}
-
-	// Send processing message
-	processingMsg := tgbotapi.NewMessage(chatID, "Cancelling your subscription...")
-	sentMsg, _ := bot.Send(processingMsg)
-
-	// Log subscription details for debugging
-	logger.Info().Int64("user_id", userID).
-		Str("subscription_status", sub.Status).
-		Str("stripe_subscription_id", sub.StripeSubscriptionID).
-		Str("payment_id", sub.PaymentID).
-		Msg("Starting subscription cancellation")
-
-	// Cancel subscription in Stripe if we have the subscription ID
-	if sub.StripeSubscriptionID != "" {
-		logger.Info().Int64("user_id", userID).Str("subscription_id", sub.StripeSubscriptionID).Msg("Attempting to cancel Stripe subscription")
-
-		if err := stripeService.CancelSubscription(sub.StripeSubscriptionID); err != nil {
-			logger.Error().Err(err).Int64("user_id", userID).Str("subscription_id", sub.StripeSubscriptionID).Msg("Error cancelling Stripe subscription")
-
-			// More detailed error message
-			var errorMsg string
-			if strings.Contains(err.Error(), "No such subscription") {
-				errorMsg = "Subscription not found in payment system. Updating local status..."
-				logger.Info().Int64("user_id", userID).Msg("Subscription not found in Stripe, proceeding with local cancellation")
-			} else if strings.Contains(err.Error(), "already canceled") {
-				errorMsg = "Subscription already cancelled. Updating local status..."
-				logger.Info().Int64("user_id", userID).Msg("Subscription already cancelled in Stripe, proceeding with local cancellation")
-			} else {
-				// Edit the processing message to show error
-				editMsg := tgbotapi.NewEditMessageText(chatID, sentMsg.MessageID, fmt.Sprintf("❌ Failed to cancel subscription in Stripe: %v\n\n⚠️ ВАЖНО: Подписка НЕ отменена в платежной системе!\nСвяжитесь с поддержкой для отмены во избежание повторного списания!", err))
-				bot.Send(editMsg)
-				return
-			}
-
-			// If it's a "not found" or "already canceled" error, we can proceed with local cancellation
-			editMsg := tgbotapi.NewEditMessageText(chatID, sentMsg.MessageID, errorMsg)
-			bot.Send(editMsg)
-		} else {
-			logger.Info().Int64("user_id", userID).Str("subscription_id", sub.StripeSubscriptionID).Msg("Successfully cancelled Stripe subscription")
-
-			// Update processing message to show Stripe cancellation success
-			editMsg := tgbotapi.NewEditMessageText(chatID, sentMsg.MessageID, "✅ Subscription cancelled in payment system. Updating local status...")
-			bot.Send(editMsg)
-		}
-	} else {
-		logger.Warn().Int64("user_id", userID).Msg("No Stripe subscription ID found, attempting to find subscription by user ID")
-
-		// Edit message to show we're searching
-		editMsg := tgbotapi.NewEditMessageText(chatID, sentMsg.MessageID, "🔍 Searching for subscription in payment system...")
-		bot.Send(editMsg)
-
-		// Try to find subscription by user ID
-		stripeSubscription, err := stripeService.FindSubscriptionByUserID(userID)
-		if err != nil {
-			logger.Error().Err(err).Int64("user_id", userID).Msg("Failed to find subscription in Stripe")
-
-			// Edit message to inform user about missing Stripe ID
-			editMsg := tgbotapi.NewEditMessageText(chatID, sentMsg.MessageID, "⚠️ Could not find subscription in payment system!\n\n🚨 ВАЖНО: Подписка может остаться активной!\nОтмените вручную в Stripe Dashboard или свяжитесь с поддержкой!")
-			bot.Send(editMsg)
-
-			// Send detailed instructions
-			instructionsMsg := tgbotapi.NewMessage(chatID, `📋 Инструкция по ручной отмене:
-
-1. Зайдите в Stripe Dashboard:
-   https://dashboard.stripe.com/subscriptions
-
-2. Найдите активную подписку для вашего email
-
-3. Нажмите "..." → Cancel subscription
-
-⚠️ Это необходимо чтобы избежать повторного списания!`)
-			bot.Send(instructionsMsg)
-		} else {
-			logger.Info().Int64("user_id", userID).Str("found_subscription_id", stripeSubscription.ID).Msg("Found subscription in Stripe, attempting to cancel")
-
-			// Update database with found subscription ID
-			if err := db.UpdateStripeSubscriptionID(userID, stripeSubscription.ID); err != nil {
-				logger.Error().Err(err).Int64("user_id", userID).Msg("Failed to update Stripe subscription ID")
-			}
-
-			// Try to cancel the found subscription
-			if err := stripeService.CancelSubscription(stripeSubscription.ID); err != nil {
-				logger.Error().Err(err).Int64("user_id", userID).Str("subscription_id", stripeSubscription.ID).Msg("Error cancelling found Stripe subscription")
-
-				editMsg := tgbotapi.NewEditMessageText(chatID, sentMsg.MessageID, fmt.Sprintf("❌ Found subscription but failed to cancel: %v\n\n⚠️ Отмените вручную в Stripe Dashboard!", err))
-				bot.Send(editMsg)
-				return
-			} else {
-				logger.Info().Int64("user_id", userID).Str("subscription_id", stripeSubscription.ID).Msg("Successfully found and cancelled Stripe subscription")
-
-				// Update processing message to show success
-				editMsg := tgbotapi.NewEditMessageText(chatID, sentMsg.MessageID, "✅ Found and cancelled subscription in payment system!")
-				bot.Send(editMsg)
-			}
-		}
-	}
-
-	// Update subscription status to closed in database
-	if err := db.CloseSubscription(userID); err != nil {
-		logger.Error().Err(err).Int64("user_id", userID).Msg("Error updating subscription status")
-
-		// Edit the processing message to show error
-		editMsg := tgbotapi.NewEditMessageText(chatID, sentMsg.MessageID, "Failed to update subscription status. Please contact support.")
-		bot.Send(editMsg)
-		return
-	}
-
-	// Edit the processing message to show success
-	editMsg := tgbotapi.NewEditMessageText(chatID, sentMsg.MessageID, "✅ Your subscription has been successfully cancelled. Thank you for using our service!")
-	bot.Send(editMsg)
-
-	// Send follow-up message with main menu
-	followUpMsg := tgbotapi.NewMessage(chatID, "You can subscribe again anytime by selecting a currency pair and timeframe.")
-	followUpMsg.ReplyMarkup = getMainMenuKeyboard(false)
-	bot.Send(followUpMsg)
-
-	// Update user state
-	state, exists := userStates[userID]
-	if exists {
-		state.Stage = StageInitial
-	}
 }
