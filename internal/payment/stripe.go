@@ -48,7 +48,7 @@ func (s *StripeService) CreateCheckoutSession(userID int64, currencyPair, timefr
 	params := &stripe.CheckoutSessionParams{
 		SuccessURL: stripe.String(successURL),
 		CancelURL:  stripe.String(cancelURL),
-		Mode:       stripe.String(string(stripe.CheckoutSessionModePayment)),
+		Mode:       stripe.String(string(stripe.CheckoutSessionModeSubscription)),
 		LineItems: []*stripe.CheckoutSessionLineItemParams{
 			{
 				Price:    stripe.String(s.SubscriptionPriceID),
