@@ -766,27 +766,27 @@ func handleCallback(bot *tgbotapi.BotAPI, callback *tgbotapi.CallbackQuery, logg
 		sub, err := db.GetSubscription(userID)
 		if err != nil {
 			logger.Error().Err(err).Int64("user_id", userID).Msg("Error getting subscription from database")
-			bot.Request(tgbotapi.NewCallbackWithAlert(callback.ID, "❌ Ошибка при получении подписки из базы данных"))
+			bot.Request(tgbotapi.NewCallbackWithAlert(callback.ID, "❌ Error retrieving subscription from database"))
 			return
 		}
 
 		if sub == nil {
 			logger.Warn().Int64("user_id", userID).Msg("No subscription found in database")
-			bot.Request(tgbotapi.NewCallbackWithAlert(callback.ID, "❌ Подписка не найдена"))
+			bot.Request(tgbotapi.NewCallbackWithAlert(callback.ID, "❌ Subscription not found"))
 			return
 		}
 
 		if sub.Status == models.PaymentStatusClosed {
-			bot.Request(tgbotapi.NewCallbackWithAlert(callback.ID, "ℹ️ Подписка уже отменена"))
+			bot.Request(tgbotapi.NewCallbackWithAlert(callback.ID, "ℹ️ Subscription already cancelled"))
 			return
 		}
 
 		// Show confirmation dialog
-		confirmMsg := tgbotapi.NewMessage(chatID, "⚠️ Вы уверены что хотите отменить подписку?\n\nЭто действие нельзя отменить.")
+		confirmMsg := tgbotapi.NewMessage(chatID, "⚠️ Are you sure you want to cancel the subscription?\n\nThis action cannot be undone.")
 		confirmMsg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
 			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonData("✅ Да, отменить", "confirm_cancel_subscription"),
-				tgbotapi.NewInlineKeyboardButtonData("❌ Нет, оставить", "settings_menu"),
+				tgbotapi.NewInlineKeyboardButtonData("✅ Yes, cancel", "confirm_cancel_subscription"),
+				tgbotapi.NewInlineKeyboardButtonData("❌ No, keep it", "settings_menu"),
 			),
 		)
 		bot.Send(confirmMsg)
@@ -801,65 +801,71 @@ func handleCallback(bot *tgbotapi.BotAPI, callback *tgbotapi.CallbackQuery, logg
 		bot.Send(msg)
 	} else if data == "subscription_info" {
 		// Show subscription information
-		sub, err := db.GetSubscription(userID)
+		subscription, err := db.GetSubscription(userID)
 		if err != nil {
-			bot.Request(tgbotapi.NewCallbackWithAlert(callback.ID, "❌ Ошибка при получении информации о подписке"))
+			bot.Request(tgbotapi.NewCallbackWithAlert(callback.ID, "❌ Error retrieving subscription information"))
 			return
 		}
 
-		if sub == nil {
-			bot.Request(tgbotapi.NewCallbackWithAlert(callback.ID, "❌ Подписка не найдена"))
+		if subscription == nil {
+			bot.Request(tgbotapi.NewCallbackWithAlert(callback.ID, "❌ Subscription not found"))
 			return
 		}
 
-		daysLeft := int(time.Until(sub.ExpiresAt).Hours() / 24)
-		infoMsg := fmt.Sprintf("📋 *Информация о подписке*\n\n"+
-			"📊 Статус: %s\n"+
-			"💰 План: Premium ($14.99/месяц)\n"+
-			"📅 Создана: %s\n"+
-			"⏰ Истекает: %s\n"+
-			"📈 Валютная пара: %s\n"+
-			"⏱ Таймфрейм: %s\n"+
-			"🔢 Дней осталось: %d",
-			sub.Status,
-			sub.CreatedAt.Format("2006-01-02 15:04:05"),
-			sub.ExpiresAt.Format("2006-01-02 15:04:05"),
-			sub.CurrencyPair,
-			sub.Timeframe,
-			daysLeft)
+		var statusText string
+		switch subscription.Status {
+		case "pending":
+			statusText = "⏳ Pending"
+		case "accepted":
+			statusText = "✅ Active"
+		case "closed":
+			statusText = "❌ Cancelled"
+		default:
+			statusText = subscription.Status
+		}
 
-		msg := tgbotapi.NewMessage(chatID, infoMsg)
-		msg.ParseMode = "Markdown"
-		msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+		text := fmt.Sprintf(
+			"📊 *Subscription Information*\n\n"+
+				"💳 Stripe ID: `%s`\n"+
+				"📅 Created: %s\n"+
+				"📋 Status: %s\n"+
+				"💰 Subscription: Premium",
+			subscription.PaymentID,
+			subscription.CreatedAt.Format("2006-01-02 15:04"),
+			statusText,
+		)
+
+		keyboard := tgbotapi.NewInlineKeyboardMarkup(
 			tgbotapi.NewInlineKeyboardRow(
 				tgbotapi.NewInlineKeyboardButtonData("← Back to Settings", "settings_menu"),
 			),
 		)
-		bot.Send(msg)
-	} else if data == "about" {
+
+		editMsg := tgbotapi.NewEditMessageText(chatID, callback.Message.MessageID, text)
+		editMsg.ParseMode = "Markdown"
+		editMsg.ReplyMarkup = &keyboard
+		bot.Send(editMsg)
+	} else if data == "about_info" {
 		// Show about information
-		aboutMsg := "ℹ️ *О TradePlusAI Bot*\n\n" +
-			"🤖 Передовой AI-бот для анализа валютного рынка\n\n" +
-			"✨ *Возможности:*\n" +
-			"• Анализ рынка в режиме реального времени\n" +
-			"• Прогнозирование направления цены\n" +
-			"• Поддержка множества валютных пар\n" +
-			"• Различные таймфреймы\n" +
-			"• Расширенные технические индикаторы\n\n" +
-			"💡 *Premium подписка включает:*\n" +
-			"• Неограниченные прогнозы\n" +
-			"• Расширенная аналитика\n" +
-			"• Приоритетная поддержка\n\n" +
-			"📞 Поддержка: @support_username"
+		text := "🤖 *About This Bot*\n\n" +
+			"💡 *Premium subscription includes:*\n" +
+			"• ⚡ Faster processing\n" +
+			"• 🎯 Advanced features\n" +
+			"• 🔄 Priority support\n" +
+			"• 📊 Detailed analytics\n\n" +
+			"👥 Support: @support\n" +
+			"📱 Version: 1.0.0"
 
-		msg := tgbotapi.NewMessage(chatID, aboutMsg)
-		msg.ParseMode = "Markdown"
-		msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+		keyboard := tgbotapi.NewInlineKeyboardMarkup(
 			tgbotapi.NewInlineKeyboardRow(
 				tgbotapi.NewInlineKeyboardButtonData("← Back to Settings", "settings_menu"),
 			),
 		)
-		bot.Send(msg)
+
+		editMsg := tgbotapi.NewEditMessageText(chatID, callback.Message.MessageID, text)
+		editMsg.ParseMode = "Markdown"
+		editMsg.ReplyMarkup = &keyboard
+		bot.Send(editMsg)
 	}
 }
 
@@ -1002,7 +1008,7 @@ func getSettingsKeyboard(isPremium bool) tgbotapi.InlineKeyboardMarkup {
 	// Add common settings
 	buttons = append(buttons,
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("ℹ️ About", "about"),
+			tgbotapi.NewInlineKeyboardButtonData("ℹ️ About", "about_info"),
 		),
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("← Back to Main Menu", "main_menu"),
@@ -1320,26 +1326,26 @@ func executeCancelSubscription(bot *tgbotapi.BotAPI, userID, chatID int64, logge
 	sub, err := db.GetSubscription(userID)
 	if err != nil {
 		logger.Error().Err(err).Int64("user_id", userID).Msg("Error getting subscription from database")
-		msg := tgbotapi.NewMessage(chatID, "❌ Ошибка при получении подписки из базы данных")
+		msg := tgbotapi.NewMessage(chatID, "❌ Error retrieving subscription from database")
 		bot.Send(msg)
 		return
 	}
 
 	if sub == nil {
 		logger.Warn().Int64("user_id", userID).Msg("No subscription found in database")
-		msg := tgbotapi.NewMessage(chatID, "❌ Подписка не найдена")
+		msg := tgbotapi.NewMessage(chatID, "❌ Subscription not found")
 		bot.Send(msg)
 		return
 	}
 
 	if sub.Status == models.PaymentStatusClosed {
-		msg := tgbotapi.NewMessage(chatID, "ℹ️ Подписка уже отменена")
+		msg := tgbotapi.NewMessage(chatID, "ℹ️ Subscription already cancelled")
 		bot.Send(msg)
 		return
 	}
 
 	// Send processing message
-	processingMsg := tgbotapi.NewMessage(chatID, "🔄 Отменяю подписку...")
+	processingMsg := tgbotapi.NewMessage(chatID, "🔄 Cancelling subscription...")
 	sentMsg, _ := bot.Send(processingMsg)
 
 	var stripeSuccess bool = false
@@ -1409,7 +1415,7 @@ func executeCancelSubscription(bot *tgbotapi.BotAPI, userID, chatID int64, logge
 	// Cancel in database
 	if err := db.CloseSubscription(userID); err != nil {
 		logger.Error().Err(err).Int64("user_id", userID).Msg("Error cancelling subscription in database")
-		editMsg := tgbotapi.NewEditMessageText(chatID, sentMsg.MessageID, "❌ Ошибка при отмене подписки в базе данных")
+		editMsg := tgbotapi.NewEditMessageText(chatID, sentMsg.MessageID, "❌ Error cancelling subscription in database")
 		bot.Send(editMsg)
 		return
 	}
@@ -1423,16 +1429,16 @@ func executeCancelSubscription(bot *tgbotapi.BotAPI, userID, chatID int64, logge
 	// Send result message
 	var resultMsg string
 	if stripeSuccess {
-		resultMsg = fmt.Sprintf("✅ Подписка успешно отменена!\n\n💳 Stripe ID: %s\n📱 Статус в боте: отменена\n\n🛡️ Повторных списаний не будет.\n\nСпасибо за использование нашего сервиса!", stripeID)
+		resultMsg = fmt.Sprintf("✅ Subscription successfully cancelled!\n\n💳 Stripe ID: %s\n📱 Bot Status: cancelled\n\n🛡️ No recurring charges will occur.\n\nThank you for using our service!", stripeID)
 	} else {
-		resultMsg = "⚠️ Подписка отменена в боте, но не найдена в Stripe.\n\n🚨 ВАЖНО: Возможны повторные списания!\n\n📞 СРОЧНО свяжитесь с поддержкой:\n• Напишите в поддержку бота\n• Или обратитесь в банк для блокировки списаний\n\n🔍 Используйте команду /fix для поиска подписки\n\nСпасибо за использование нашего сервиса!"
+		resultMsg = "⚠️ Subscription cancelled in bot but not found in Stripe.\n\n🚨 IMPORTANT: Recurring charges may still occur!\n\n📞 URGENT: Contact support:\n• Message bot support\n• Or contact your bank to block recurring charges\n\n💳 Stripe ID: " + sub.StripeSubscriptionID
 	}
 
-	editMsg := tgbotapi.NewEditMessageText(chatID, sentMsg.MessageID, resultMsg)
-	bot.Send(editMsg)
+	// Send result message and return to main menu
+	resultMessage := tgbotapi.NewMessage(chatID, resultMsg)
+	bot.Send(resultMessage)
 
-	// Show main menu
-	menuMsg := tgbotapi.NewMessage(chatID, "Главное меню:")
+	menuMsg := tgbotapi.NewMessage(chatID, "Main menu:")
 	menuMsg.ReplyMarkup = getMainMenuKeyboard(false)
 	bot.Send(menuMsg)
 
