@@ -61,11 +61,19 @@ func createTables(db *sql.DB) error {
 			created_at TIMESTAMP NOT NULL,
 			expires_at TIMESTAMP NOT NULL,
 			payment_id TEXT,
+			stripe_subscription_id TEXT,
 			currency_pair TEXT,
 			timeframe TEXT,
 			last_predicted TIMESTAMP
 		)
 	`)
+
+	// Add the new column if it doesn't exist (for existing databases)
+	_, _ = db.Exec(`
+		ALTER TABLE user_subscriptions 
+		ADD COLUMN IF NOT EXISTS stripe_subscription_id TEXT
+	`)
+
 	return err
 }
 
@@ -109,16 +117,17 @@ func (db *DB) GetSubscription(userID int64) (*models.UserSubscription, error) {
 	var sub models.UserSubscription
 	var lastPredicted sql.NullTime
 	var paymentID sql.NullString
+	var stripeSubscriptionID sql.NullString
 
 	err := db.QueryRow(`
 		SELECT 
 			user_id, chat_id, status, created_at, expires_at, 
-			payment_id, currency_pair, timeframe, last_predicted
+			payment_id, stripe_subscription_id, currency_pair, timeframe, last_predicted
 		FROM user_subscriptions
 		WHERE user_id = $1
 	`, userID).Scan(
 		&sub.UserID, &sub.ChatID, &sub.Status, &sub.CreatedAt, &sub.ExpiresAt,
-		&paymentID, &sub.CurrencyPair, &sub.Timeframe, &lastPredicted,
+		&paymentID, &stripeSubscriptionID, &sub.CurrencyPair, &sub.Timeframe, &lastPredicted,
 	)
 
 	if err != nil {
@@ -130,6 +139,10 @@ func (db *DB) GetSubscription(userID int64) (*models.UserSubscription, error) {
 
 	if paymentID.Valid {
 		sub.PaymentID = paymentID.String
+	}
+
+	if stripeSubscriptionID.Valid {
+		sub.StripeSubscriptionID = stripeSubscriptionID.String
 	}
 
 	if lastPredicted.Valid {
@@ -181,4 +194,36 @@ func (db *DB) UpdateLastPredicted(userID int64) error {
 	`, userID)
 
 	return err
+}
+
+// UpdateStripeSubscriptionID updates the Stripe subscription ID for a user
+func (db *DB) UpdateStripeSubscriptionID(userID int64, stripeSubscriptionID string) error {
+	_, err := db.Exec(`
+		UPDATE user_subscriptions
+		SET stripe_subscription_id = $1
+		WHERE user_id = $2
+	`, stripeSubscriptionID, userID)
+
+	return err
+}
+
+// GetStripeSubscriptionID gets the Stripe subscription ID for a user
+func (db *DB) GetStripeSubscriptionID(userID int64) (string, error) {
+	var stripeSubID sql.NullString
+
+	err := db.QueryRow(`
+		SELECT stripe_subscription_id
+		FROM user_subscriptions
+		WHERE user_id = $1
+	`, userID).Scan(&stripeSubID)
+
+	if err != nil {
+		return "", err
+	}
+
+	if stripeSubID.Valid {
+		return stripeSubID.String, nil
+	}
+
+	return "", nil
 }

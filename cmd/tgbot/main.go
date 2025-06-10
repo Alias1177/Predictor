@@ -231,7 +231,7 @@ func handleMessage(bot *tgbotapi.BotAPI, message *tgbotapi.Message, logger *zero
 			}
 
 			if sub == nil || sub.Status != models.PaymentStatusAccepted {
-			
+
 				msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("To run predictions you need a premium subscription. The subscription costs $14.99 per month."))
 				msg.ReplyMarkup = getPaymentKeyboard()
 				bot.Send(msg)
@@ -320,6 +320,9 @@ func handleMessage(bot *tgbotapi.BotAPI, message *tgbotapi.Message, logger *zero
 			msg := tgbotapi.NewMessage(chatID, statusMsg)
 			bot.Send(msg)
 		}
+	case "Cancel Subscription":
+		// Handle subscription cancellation
+		handleCancelSubscription(bot, userID, chatID, logger)
 	default:
 		// Handle other inputs based on current stage
 		switch state.Stage {
@@ -500,6 +503,14 @@ func handleCallback(bot *tgbotapi.BotAPI, callback *tgbotapi.CallbackQuery, logg
 		msg.ReplyMarkup = getMainMenuKeyboard(state.Stage == StagePremium)
 		bot.Send(msg)
 		state.Stage = StageInitial
+	} else if data == "confirm_cancel" {
+		// Handle subscription cancellation confirmation
+		handleConfirmCancelSubscription(bot, userID, chatID, logger)
+	} else if data == "cancel_cancel" {
+		// User decided not to cancel
+		msg := tgbotapi.NewMessage(chatID, "Subscription cancellation cancelled. Your subscription remains active.")
+		msg.ReplyMarkup = getMainMenuKeyboard(true)
+		bot.Send(msg)
 	}
 }
 
@@ -590,6 +601,9 @@ func getMainMenuKeyboard(isPremium bool) tgbotapi.ReplyKeyboardMarkup {
 			),
 			tgbotapi.NewKeyboardButtonRow(
 				tgbotapi.NewKeyboardButton("Run Prediction"),
+			),
+			tgbotapi.NewKeyboardButtonRow(
+				tgbotapi.NewKeyboardButton("Cancel Subscription"),
 			),
 		)
 	}
@@ -901,4 +915,103 @@ func contains(slice []string, item string) bool {
 		}
 	}
 	return false
+}
+
+// handleCancelSubscription handles the cancellation of a subscription
+func handleCancelSubscription(bot *tgbotapi.BotAPI, userID, chatID int64, logger *zerolog.Logger) {
+	// Check subscription status
+	sub, err := db.GetSubscription(userID)
+	if err != nil {
+		logger.Error().Err(err).Int64("user_id", userID).Msg("Error retrieving subscription")
+		msg := tgbotapi.NewMessage(chatID, "Sorry, there was an error. Please try again later.")
+		bot.Send(msg)
+		return
+	}
+
+	if sub == nil {
+		msg := tgbotapi.NewMessage(chatID, "You don't have an active subscription.")
+		msg.ReplyMarkup = getMainMenuKeyboard(false)
+		bot.Send(msg)
+		return
+	}
+
+	if sub.Status != models.PaymentStatusAccepted {
+		msg := tgbotapi.NewMessage(chatID, "Your subscription is not active.")
+		msg.ReplyMarkup = getMainMenuKeyboard(false)
+		bot.Send(msg)
+		return
+	}
+
+	// Send confirmation message
+	msg := tgbotapi.NewMessage(chatID, "Are you sure you want to cancel your subscription? This action cannot be undone.")
+
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("✅ Yes, Cancel", "confirm_cancel"),
+			tgbotapi.NewInlineKeyboardButtonData("❌ No, Keep", "cancel_cancel"),
+		),
+	)
+	msg.ReplyMarkup = keyboard
+	bot.Send(msg)
+}
+
+// handleConfirmCancelSubscription handles the confirmation of subscription cancellation
+func handleConfirmCancelSubscription(bot *tgbotapi.BotAPI, userID, chatID int64, logger *zerolog.Logger) {
+	// Check subscription status
+	sub, err := db.GetSubscription(userID)
+	if err != nil {
+		logger.Error().Err(err).Int64("user_id", userID).Msg("Error retrieving subscription")
+		msg := tgbotapi.NewMessage(chatID, "Sorry, there was an error. Please try again later.")
+		bot.Send(msg)
+		return
+	}
+
+	if sub == nil || sub.Status != models.PaymentStatusAccepted {
+		msg := tgbotapi.NewMessage(chatID, "No active subscription found.")
+		msg.ReplyMarkup = getMainMenuKeyboard(false)
+		bot.Send(msg)
+		return
+	}
+
+	// Send processing message
+	processingMsg := tgbotapi.NewMessage(chatID, "Cancelling your subscription...")
+	sentMsg, _ := bot.Send(processingMsg)
+
+	// Cancel subscription in Stripe if we have the subscription ID
+	if sub.StripeSubscriptionID != "" {
+		if err := stripeService.CancelSubscription(sub.StripeSubscriptionID); err != nil {
+			logger.Error().Err(err).Int64("user_id", userID).Str("subscription_id", sub.StripeSubscriptionID).Msg("Error cancelling Stripe subscription")
+
+			// Edit the processing message to show error
+			editMsg := tgbotapi.NewEditMessageText(chatID, sentMsg.MessageID, "Failed to cancel subscription in payment system. Please contact support.")
+			bot.Send(editMsg)
+			return
+		}
+		logger.Info().Int64("user_id", userID).Str("subscription_id", sub.StripeSubscriptionID).Msg("Successfully cancelled Stripe subscription")
+	}
+
+	// Update subscription status to closed in database
+	if err := db.CloseSubscription(userID); err != nil {
+		logger.Error().Err(err).Int64("user_id", userID).Msg("Error updating subscription status")
+
+		// Edit the processing message to show error
+		editMsg := tgbotapi.NewEditMessageText(chatID, sentMsg.MessageID, "Failed to update subscription status. Please contact support.")
+		bot.Send(editMsg)
+		return
+	}
+
+	// Edit the processing message to show success
+	editMsg := tgbotapi.NewEditMessageText(chatID, sentMsg.MessageID, "✅ Your subscription has been successfully cancelled. Thank you for using our service!")
+	bot.Send(editMsg)
+
+	// Send follow-up message with main menu
+	followUpMsg := tgbotapi.NewMessage(chatID, "You can subscribe again anytime by selecting a currency pair and timeframe.")
+	followUpMsg.ReplyMarkup = getMainMenuKeyboard(false)
+	bot.Send(followUpMsg)
+
+	// Update user state
+	state, exists := userStates[userID]
+	if exists {
+		state.Stage = StageInitial
+	}
 }

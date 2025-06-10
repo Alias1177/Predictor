@@ -104,14 +104,14 @@ func main() {
 		log.Printf("Raw event data: %s", string(body))
 
 		// Process the event
-		userID, status, err := stripeService.ProcessSubscriptionPayment(event)
+		userID, status, subscriptionID, err := stripeService.ProcessSubscriptionPayment(event)
 		if err != nil {
 			log.Printf("Failed to process payment event: %v", err)
 			http.Error(w, "Error processing event", http.StatusInternalServerError)
 			return
 		}
 
-		log.Printf("Event processed. UserID: %d, Status: %s", userID, status)
+		log.Printf("Event processed. UserID: %d, Status: %s, SubscriptionID: %s", userID, status, subscriptionID)
 
 		// If we have a valid user ID and status, update the subscription
 		if userID > 0 {
@@ -121,6 +121,17 @@ func main() {
 				http.Error(w, "Error updating subscription", http.StatusInternalServerError)
 				return
 			}
+
+			// Update Stripe subscription ID if available
+			if subscriptionID != "" {
+				if err := db.UpdateStripeSubscriptionID(userID, subscriptionID); err != nil {
+					log.Printf("Failed to update Stripe subscription ID: %v", err)
+					// Don't fail the webhook for this, just log the error
+				} else {
+					log.Printf("Updated Stripe subscription ID for user %d: %s", userID, subscriptionID)
+				}
+			}
+
 			log.Printf("Successfully updated subscription for user %d to status %s with payment ID %s",
 				userID, status, paymentID)
 

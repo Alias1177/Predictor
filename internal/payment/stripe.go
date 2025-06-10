@@ -10,6 +10,7 @@ import (
 
 	"github.com/stripe/stripe-go/v76"
 	"github.com/stripe/stripe-go/v76/checkout/session"
+	"github.com/stripe/stripe-go/v76/subscription"
 	"github.com/stripe/stripe-go/v76/webhook"
 )
 
@@ -74,14 +75,14 @@ func (s *StripeService) VerifyWebhookSignature(payload []byte, signature string)
 }
 
 // ProcessSubscriptionPayment processes a Stripe subscription payment webhook event
-func (s *StripeService) ProcessSubscriptionPayment(event *stripe.Event) (int64, string, error) {
+func (s *StripeService) ProcessSubscriptionPayment(event *stripe.Event) (int64, string, string, error) {
 	// Process different event types
 	switch event.Type {
 	case "checkout.session.completed":
 		// Payment was successful (works for both subscription and one-time payments)
 		var sess stripe.CheckoutSession
 		if err := json.Unmarshal(event.Data.Raw, &sess); err != nil {
-			return 0, "", fmt.Errorf("failed to parse checkout session: %v", err)
+			return 0, "", "", fmt.Errorf("failed to parse checkout session: %v", err)
 		}
 
 		// Log the session details for debugging
@@ -90,21 +91,27 @@ func (s *StripeService) ProcessSubscriptionPayment(event *stripe.Event) (int64, 
 		// Extract user ID from metadata
 		userIDStr, ok := sess.Metadata["user_id"]
 		if !ok {
-			return 0, "", fmt.Errorf("user_id not found in session metadata")
+			return 0, "", "", fmt.Errorf("user_id not found in session metadata")
 		}
 
 		userID, err := strconv.ParseInt(userIDStr, 10, 64)
 		if err != nil {
-			return 0, "", fmt.Errorf("invalid user_id: %v", err)
+			return 0, "", "", fmt.Errorf("invalid user_id: %v", err)
 		}
 
-		return userID, models.PaymentStatusAccepted, nil
+		// Extract subscription ID if available
+		subscriptionID := ""
+		if sess.Subscription != nil {
+			subscriptionID = sess.Subscription.ID
+		}
+
+		return userID, models.PaymentStatusAccepted, subscriptionID, nil
 
 	case "payment_intent.succeeded":
 		// Payment intent succeeded (for one-time payments)
 		var intent stripe.PaymentIntent
 		if err := json.Unmarshal(event.Data.Raw, &intent); err != nil {
-			return 0, "", fmt.Errorf("failed to parse payment intent: %v", err)
+			return 0, "", "", fmt.Errorf("failed to parse payment intent: %v", err)
 		}
 
 		// Extract user ID from metadata
@@ -117,42 +124,42 @@ func (s *StripeService) ProcessSubscriptionPayment(event *stripe.Event) (int64, 
 			if !ok {
 				fmt.Printf("Warning: user_id not found in payment intent metadata\n")
 				// Try to proceed with other data
-				return 0, "", fmt.Errorf("user_id not found in payment intent metadata")
+				return 0, "", "", fmt.Errorf("user_id not found in payment intent metadata")
 			}
 		}
 
 		userID, err := strconv.ParseInt(userIDStr, 10, 64)
 		if err != nil {
-			return 0, "", fmt.Errorf("invalid user_id: %v", err)
+			return 0, "", "", fmt.Errorf("invalid user_id: %v", err)
 		}
 
-		return userID, models.PaymentStatusAccepted, nil
+		return userID, models.PaymentStatusAccepted, "", nil
 
 	case "customer.subscription.deleted":
 		// Subscription was cancelled or expired
 		var sub stripe.Subscription
 		if err := json.Unmarshal(event.Data.Raw, &sub); err != nil {
-			return 0, "", fmt.Errorf("failed to parse subscription: %v", err)
+			return 0, "", "", fmt.Errorf("failed to parse subscription: %v", err)
 		}
 
 		// Extract user ID from metadata (if available)
 		userIDStr, ok := sub.Metadata["user_id"]
 		if !ok {
-			return 0, "", fmt.Errorf("user_id not found in subscription metadata")
+			return 0, "", "", fmt.Errorf("user_id not found in subscription metadata")
 		}
 
 		userID, err := strconv.ParseInt(userIDStr, 10, 64)
 		if err != nil {
-			return 0, "", fmt.Errorf("invalid user_id: %v", err)
+			return 0, "", "", fmt.Errorf("invalid user_id: %v", err)
 		}
 
-		return userID, models.PaymentStatusClosed, nil
+		return userID, models.PaymentStatusClosed, sub.ID, nil
 
 	case "charge.succeeded":
 		// Charge succeeded (another payment event)
 		var charge stripe.Charge
 		if err := json.Unmarshal(event.Data.Raw, &charge); err != nil {
-			return 0, "", fmt.Errorf("failed to parse charge: %v", err)
+			return 0, "", "", fmt.Errorf("failed to parse charge: %v", err)
 		}
 
 		// Try to extract user ID from metadata
@@ -160,18 +167,47 @@ func (s *StripeService) ProcessSubscriptionPayment(event *stripe.Event) (int64, 
 		if !ok {
 			fmt.Printf("Warning: user_id not found in charge metadata\n")
 			// We might try other lookups or return an error
-			return 0, "", fmt.Errorf("user_id not found in charge metadata")
+			return 0, "", "", fmt.Errorf("user_id not found in charge metadata")
 		}
 
 		userID, err := strconv.ParseInt(userIDStr, 10, 64)
 		if err != nil {
-			return 0, "", fmt.Errorf("invalid user_id: %v", err)
+			return 0, "", "", fmt.Errorf("invalid user_id: %v", err)
 		}
 
-		return userID, models.PaymentStatusAccepted, nil
+		return userID, models.PaymentStatusAccepted, "", nil
 
 	default:
 		fmt.Printf("Unhandled event type: %s\n", event.Type)
-		return 0, "", fmt.Errorf("unhandled event type: %s", event.Type)
+		return 0, "", "", fmt.Errorf("unhandled event type: %s", event.Type)
 	}
+}
+
+// CancelSubscription cancels a user's Stripe subscription
+func (s *StripeService) CancelSubscription(subscriptionID string) error {
+	// Cancel the subscription immediately
+	params := &stripe.SubscriptionCancelParams{}
+
+	_, err := subscription.Cancel(subscriptionID, params)
+	return err
+}
+
+// GetSubscriptionByCustomer retrieves subscription by customer ID
+func (s *StripeService) GetSubscriptionByCustomer(customerID string) (*stripe.Subscription, error) {
+	params := &stripe.SubscriptionListParams{
+		Customer: stripe.String(customerID),
+		Status:   stripe.String("active"),
+	}
+
+	iter := subscription.List(params)
+	for iter.Next() {
+		subscription := iter.Subscription()
+		return subscription, nil
+	}
+
+	if iter.Err() != nil {
+		return nil, iter.Err()
+	}
+
+	return nil, fmt.Errorf("no active subscription found")
 }

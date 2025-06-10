@@ -8,6 +8,7 @@ A Telegram bot that provides forex predictions with premium subscription via Str
 - Currency pair selection
 - Timeframe selection
 - Premium subscription via Stripe
+- **Subscription cancellation functionality**
 - Automated subscription expiration after 1 month
 - Technical indicators and prediction
 - PostgreSQL database for subscription storage
