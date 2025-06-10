@@ -21,7 +21,15 @@ jobs:
         run: |
           # Используем секрет ENV напрямую
           echo "${{ secrets.ENV }}" > .env
-          echo ".env file created successfully"
+          # Добавляем HTTPS настройки в .env
+          echo "" >> .env
+          echo "# HTTPS Configuration (auto-added by GitHub Actions)" >> .env
+          echo "USE_HTTPS=true" >> .env
+          echo "SERVER_IP=168.231.87.153" >> .env
+          echo "CERT_DIR=./certs" >> .env
+          echo "TLS_CERT_FILE=./certs/server.crt" >> .env
+          echo "TLS_KEY_FILE=./certs/server.key" >> .env
+          echo ".env file created successfully with HTTPS config"
           ls -la .env
 
       # Добавьте секреты SSH_USER и SSH_HOST в ваш репозиторий,
@@ -36,7 +44,8 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
             mkdir -p /root/predictor
-            echo "Directory created/verified: /root/predictor"
+            mkdir -p /root/predictor/certs
+            echo "Directory created/verified: /root/predictor with certs subdirectory"
 
       # Используем actions для копирования файлов
       - name: Copy files to server
@@ -49,8 +58,8 @@ jobs:
           target: "/root/predictor"
           rm: false
 
-      # Проверка Docker и Docker Compose, затем запуск
-      - name: Deploy application
+      # Проверка Docker и Docker Compose, генерация сертификатов, затем запуск
+      - name: Deploy application with HTTPS
         uses: appleboy/ssh-action@v0.1.10
         with:
           host: 168.231.87.153  # Замените на ${{ secrets.SSH_HOST }} после добавления секрета
@@ -81,6 +90,31 @@ jobs:
               echo "Docker Compose is installed. Version: $(docker-compose --version)"
             fi
             
+            # Установка OpenSSL если не установлен
+            if ! command -v openssl &> /dev/null; then
+              echo "OpenSSL not found. Installing OpenSSL..."
+              apt update
+              apt install -y openssl
+            else
+              echo "OpenSSL is installed. Version: $(openssl version)"
+            fi
+            
+            # Генерация SSL сертификатов для IP
+            echo "Generating SSL certificates for IP: 168.231.87.153..."
+            mkdir -p certs
+            if [ ! -f "certs/server.crt" ] || [ ! -f "certs/server.key" ]; then
+              openssl req -x509 -newkey rsa:4096 -keyout certs/server.key -out certs/server.crt -days 365 -nodes \
+                -subj "/C=RU/ST=Moscow/L=Moscow/O=Organization/CN=168.231.87.153" \
+                -addext "subjectAltName=IP:168.231.87.153"
+              echo "SSL certificates generated successfully"
+            else
+              echo "SSL certificates already exist"
+            fi
+            
+            # Проверка сертификатов
+            echo "Certificate info:"
+            openssl x509 -in certs/server.crt -text -noout | grep -E "(Subject:|Not Before:|Not After:|IP Address)"
+            
             # Остановка существующих контейнеров
             echo "Stopping existing containers..."
             docker-compose down || true
@@ -89,7 +123,7 @@ jobs:
             echo "Building Docker images..."
             docker-compose build --no-cache
             
-            echo "Starting containers..."
+            echo "Starting containers with HTTPS..."
             docker-compose up -d
             
             echo "Checking running containers..."
@@ -98,10 +132,15 @@ jobs:
             echo "Checking container logs..."
             docker-compose logs --tail 20
             
-            echo "Deployment completed successfully!"
+            # Тест HTTPS соединения
+            echo "Testing HTTPS connection..."
+            sleep 10
+            curl -k -s -o /dev/null -w "%{http_code}" https://168.231.87.153:8080/health || echo "HTTPS test failed"
+            
+            echo "Deployment completed successfully with HTTPS!"
 
-      # Опциональная настройка вебхука для Telegram
-      - name: Set up Telegram webhook
+      # Настройка Telegram webhook с HTTPS
+      - name: Set up Telegram webhook with HTTPS
         uses: appleboy/ssh-action@v0.1.10
         with:
           host: 168.231.87.153  # Замените на ${{ secrets.SSH_HOST }} после добавления секрета
@@ -111,7 +150,11 @@ jobs:
             # Извлекаем токен бота из .env файла
             TELEGRAM_BOT_TOKEN=$(grep TELEGRAM_BOT_TOKEN /root/predictor/.env | cut -d= -f2)
             
-            # Используем IP-адрес для webhook (для тестирования)
-            echo "Setting up Telegram webhook..."
-            curl -F "url=http://168.231.87.153:8080/webhook" https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook
-            echo "Webhook setup completed"
+            # Используем HTTPS URL для webhook  
+            echo "Setting up Telegram webhook with HTTPS..."
+            curl -F "url=https://168.231.87.153:8080/webhook" https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook
+            echo "HTTPS Webhook setup completed"
+            
+            # Проверяем статус webhook
+            echo "Checking webhook status..."
+            curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getWebhookInfo" | jq '.'
