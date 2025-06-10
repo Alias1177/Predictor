@@ -273,3 +273,33 @@ func (s *StripeService) GetSubscriptionByCustomer(customerID string) (*stripe.Su
 
 	return nil, fmt.Errorf("no active subscription found")
 }
+
+// FindSubscriptionByUserID attempts to find an active subscription for a user
+// by searching through all active subscriptions and matching metadata
+func (s *StripeService) FindSubscriptionByUserID(userID int64) (*stripe.Subscription, error) {
+	params := &stripe.SubscriptionListParams{
+		Status: stripe.String("active"),
+	}
+	params.Filters.AddFilter("limit", "", "100") // Search through recent subscriptions
+
+	userIDStr := fmt.Sprintf("%d", userID)
+
+	iter := subscription.List(params)
+	for iter.Next() {
+		sub := iter.Subscription()
+
+		// Check if metadata contains our user_id
+		if sub.Metadata != nil {
+			if metaUserID, exists := sub.Metadata["user_id"]; exists && metaUserID == userIDStr {
+				fmt.Printf("Found subscription for user %d: %s\n", userID, sub.ID)
+				return sub, nil
+			}
+		}
+	}
+
+	if iter.Err() != nil {
+		return nil, iter.Err()
+	}
+
+	return nil, fmt.Errorf("no active subscription found for user %d", userID)
+}

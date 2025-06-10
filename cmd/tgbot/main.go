@@ -378,6 +378,49 @@ Timeframe: %s`,
 
 		msg := tgbotapi.NewMessage(chatID, debugInfo)
 		bot.Send(msg)
+	case "/fix":
+		// Command to find and link missing Stripe subscription
+		sub, err := db.GetSubscription(userID)
+		if err != nil {
+			msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("Database error: %v", err))
+			bot.Send(msg)
+			return
+		}
+
+		if sub == nil {
+			msg := tgbotapi.NewMessage(chatID, "No subscription found in database")
+			bot.Send(msg)
+			return
+		}
+
+		if sub.StripeSubscriptionID != "" {
+			msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("Stripe subscription already linked: %s", sub.StripeSubscriptionID))
+			bot.Send(msg)
+			return
+		}
+
+		// Send searching message
+		searchMsg := tgbotapi.NewMessage(chatID, "🔍 Searching for your subscription in Stripe...")
+		sentMsg, _ := bot.Send(searchMsg)
+
+		// Try to find subscription by user ID
+		stripeSubscription, err := stripeService.FindSubscriptionByUserID(userID)
+		if err != nil {
+			editMsg := tgbotapi.NewEditMessageText(chatID, sentMsg.MessageID, fmt.Sprintf("❌ Could not find subscription: %v", err))
+			bot.Send(editMsg)
+			return
+		}
+
+		// Update database with found subscription ID
+		if err := db.UpdateStripeSubscriptionID(userID, stripeSubscription.ID); err != nil {
+			editMsg := tgbotapi.NewEditMessageText(chatID, sentMsg.MessageID, fmt.Sprintf("❌ Failed to update database: %v", err))
+			bot.Send(editMsg)
+			return
+		}
+
+		// Success message
+		editMsg := tgbotapi.NewEditMessageText(chatID, sentMsg.MessageID, fmt.Sprintf("✅ Found and linked subscription!\nStripe ID: %s\n\nNow you can use 'Cancel Subscription' button.", stripeSubscription.ID))
+		bot.Send(editMsg)
 	case "Cancel Subscription":
 		// Handle subscription cancellation
 		handleCancelSubscription(bot, userID, chatID, logger)
@@ -1103,15 +1146,56 @@ func handleConfirmCancelSubscription(bot *tgbotapi.BotAPI, userID, chatID int64,
 			bot.Send(editMsg)
 		}
 	} else {
-		logger.Warn().Int64("user_id", userID).Msg("No Stripe subscription ID found, proceeding with local cancellation only")
+		logger.Warn().Int64("user_id", userID).Msg("No Stripe subscription ID found, attempting to find subscription by user ID")
 
-		// Edit message to inform user about missing Stripe ID
-		editMsg := tgbotapi.NewEditMessageText(chatID, sentMsg.MessageID, "⚠️ Stripe subscription ID not found!\nUpdating local status but subscription may still be active in payment system.\nPlease contact support!")
+		// Edit message to show we're searching
+		editMsg := tgbotapi.NewEditMessageText(chatID, sentMsg.MessageID, "🔍 Searching for subscription in payment system...")
 		bot.Send(editMsg)
 
-		// Send warning message
-		warningMsg := tgbotapi.NewMessage(chatID, "🚨 ВНИМАНИЕ: Подписка может остаться активной в платежной системе!\nРекомендуем связаться с поддержкой для полной отмены.")
-		bot.Send(warningMsg)
+		// Try to find subscription by user ID
+		stripeSubscription, err := stripeService.FindSubscriptionByUserID(userID)
+		if err != nil {
+			logger.Error().Err(err).Int64("user_id", userID).Msg("Failed to find subscription in Stripe")
+
+			// Edit message to inform user about missing Stripe ID
+			editMsg := tgbotapi.NewEditMessageText(chatID, sentMsg.MessageID, "⚠️ Could not find subscription in payment system!\n\n🚨 ВАЖНО: Подписка может остаться активной!\nОтмените вручную в Stripe Dashboard или свяжитесь с поддержкой!")
+			bot.Send(editMsg)
+
+			// Send detailed instructions
+			instructionsMsg := tgbotapi.NewMessage(chatID, `📋 Инструкция по ручной отмене:
+
+1. Зайдите в Stripe Dashboard:
+   https://dashboard.stripe.com/subscriptions
+
+2. Найдите активную подписку для вашего email
+
+3. Нажмите "..." → Cancel subscription
+
+⚠️ Это необходимо чтобы избежать повторного списания!`)
+			bot.Send(instructionsMsg)
+		} else {
+			logger.Info().Int64("user_id", userID).Str("found_subscription_id", stripeSubscription.ID).Msg("Found subscription in Stripe, attempting to cancel")
+
+			// Update database with found subscription ID
+			if err := db.UpdateStripeSubscriptionID(userID, stripeSubscription.ID); err != nil {
+				logger.Error().Err(err).Int64("user_id", userID).Msg("Failed to update Stripe subscription ID")
+			}
+
+			// Try to cancel the found subscription
+			if err := stripeService.CancelSubscription(stripeSubscription.ID); err != nil {
+				logger.Error().Err(err).Int64("user_id", userID).Str("subscription_id", stripeSubscription.ID).Msg("Error cancelling found Stripe subscription")
+
+				editMsg := tgbotapi.NewEditMessageText(chatID, sentMsg.MessageID, fmt.Sprintf("❌ Found subscription but failed to cancel: %v\n\n⚠️ Отмените вручную в Stripe Dashboard!", err))
+				bot.Send(editMsg)
+				return
+			} else {
+				logger.Info().Int64("user_id", userID).Str("subscription_id", stripeSubscription.ID).Msg("Successfully found and cancelled Stripe subscription")
+
+				// Update processing message to show success
+				editMsg := tgbotapi.NewEditMessageText(chatID, sentMsg.MessageID, "✅ Found and cancelled subscription in payment system!")
+				bot.Send(editMsg)
+			}
+		}
 	}
 
 	// Update subscription status to closed in database
