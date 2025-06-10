@@ -343,6 +343,41 @@ func handleMessage(bot *tgbotapi.BotAPI, message *tgbotapi.Message, logger *zero
 			msg := tgbotapi.NewMessage(chatID, "✅ Payment system configuration is valid")
 			bot.Send(msg)
 		}
+	case "/debug":
+		// Debug command to check subscription data
+		sub, err := db.GetSubscription(userID)
+		if err != nil {
+			msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("Database error: %v", err))
+			bot.Send(msg)
+			return
+		}
+
+		if sub == nil {
+			msg := tgbotapi.NewMessage(chatID, "No subscription found in database")
+			bot.Send(msg)
+			return
+		}
+
+		debugInfo := fmt.Sprintf(`📋 Subscription Debug Info:
+User ID: %d
+Status: %s
+Created: %s
+Expires: %s
+Payment ID: %s
+Stripe Sub ID: %s
+Currency Pair: %s
+Timeframe: %s`,
+			sub.UserID,
+			sub.Status,
+			sub.CreatedAt.Format("2006-01-02 15:04:05"),
+			sub.ExpiresAt.Format("2006-01-02 15:04:05"),
+			sub.PaymentID,
+			sub.StripeSubscriptionID,
+			sub.CurrencyPair,
+			sub.Timeframe)
+
+		msg := tgbotapi.NewMessage(chatID, debugInfo)
+		bot.Send(msg)
 	case "Cancel Subscription":
 		// Handle subscription cancellation
 		handleCancelSubscription(bot, userID, chatID, logger)
@@ -1028,6 +1063,13 @@ func handleConfirmCancelSubscription(bot *tgbotapi.BotAPI, userID, chatID int64,
 	processingMsg := tgbotapi.NewMessage(chatID, "Cancelling your subscription...")
 	sentMsg, _ := bot.Send(processingMsg)
 
+	// Log subscription details for debugging
+	logger.Info().Int64("user_id", userID).
+		Str("subscription_status", sub.Status).
+		Str("stripe_subscription_id", sub.StripeSubscriptionID).
+		Str("payment_id", sub.PaymentID).
+		Msg("Starting subscription cancellation")
+
 	// Cancel subscription in Stripe if we have the subscription ID
 	if sub.StripeSubscriptionID != "" {
 		logger.Info().Int64("user_id", userID).Str("subscription_id", sub.StripeSubscriptionID).Msg("Attempting to cancel Stripe subscription")
@@ -1045,7 +1087,7 @@ func handleConfirmCancelSubscription(bot *tgbotapi.BotAPI, userID, chatID int64,
 				logger.Info().Int64("user_id", userID).Msg("Subscription already cancelled in Stripe, proceeding with local cancellation")
 			} else {
 				// Edit the processing message to show error
-				editMsg := tgbotapi.NewEditMessageText(chatID, sentMsg.MessageID, fmt.Sprintf("Failed to cancel subscription: %v\n\nPlease contact support if this persists.", err))
+				editMsg := tgbotapi.NewEditMessageText(chatID, sentMsg.MessageID, fmt.Sprintf("❌ Failed to cancel subscription in Stripe: %v\n\n⚠️ ВАЖНО: Подписка НЕ отменена в платежной системе!\nСвяжитесь с поддержкой для отмены во избежание повторного списания!", err))
 				bot.Send(editMsg)
 				return
 			}
@@ -1055,13 +1097,21 @@ func handleConfirmCancelSubscription(bot *tgbotapi.BotAPI, userID, chatID int64,
 			bot.Send(editMsg)
 		} else {
 			logger.Info().Int64("user_id", userID).Str("subscription_id", sub.StripeSubscriptionID).Msg("Successfully cancelled Stripe subscription")
+
+			// Update processing message to show Stripe cancellation success
+			editMsg := tgbotapi.NewEditMessageText(chatID, sentMsg.MessageID, "✅ Subscription cancelled in payment system. Updating local status...")
+			bot.Send(editMsg)
 		}
 	} else {
 		logger.Warn().Int64("user_id", userID).Msg("No Stripe subscription ID found, proceeding with local cancellation only")
 
-		// Edit message to inform user
-		editMsg := tgbotapi.NewEditMessageText(chatID, sentMsg.MessageID, "No payment system subscription found. Updating local status...")
+		// Edit message to inform user about missing Stripe ID
+		editMsg := tgbotapi.NewEditMessageText(chatID, sentMsg.MessageID, "⚠️ Stripe subscription ID not found!\nUpdating local status but subscription may still be active in payment system.\nPlease contact support!")
 		bot.Send(editMsg)
+
+		// Send warning message
+		warningMsg := tgbotapi.NewMessage(chatID, "🚨 ВНИМАНИЕ: Подписка может остаться активной в платежной системе!\nРекомендуем связаться с поддержкой для полной отмены.")
+		bot.Send(warningMsg)
 	}
 
 	// Update subscription status to closed in database
