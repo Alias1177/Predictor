@@ -25,16 +25,62 @@ func NewStripeService() *StripeService {
 	// Initialize Stripe with the API key
 	stripe.Key = os.Getenv("STRIPE_API_KEY")
 
-	return &StripeService{
+	service := &StripeService{
 		SubscriptionPriceID: os.Getenv("STRIPE_SUBSCRIPTION_PRICE_ID"),
 		WebhookSecret:       os.Getenv("STRIPE_WEBHOOK_SECRET"),
 	}
+
+	// Validate configuration
+	if err := service.ValidateConfig(); err != nil {
+		fmt.Printf("WARNING: Stripe configuration validation failed: %v\n", err)
+	}
+
+	return service
+}
+
+// ValidateConfig validates the Stripe service configuration
+func (s *StripeService) ValidateConfig() error {
+	if stripe.Key == "" {
+		return fmt.Errorf("STRIPE_API_KEY not set")
+	}
+
+	if s.SubscriptionPriceID == "" {
+		return fmt.Errorf("STRIPE_SUBSCRIPTION_PRICE_ID not set")
+	}
+
+	if s.WebhookSecret == "" {
+		return fmt.Errorf("STRIPE_WEBHOOK_SECRET not set")
+	}
+
+	botUsername := os.Getenv("TELEGRAM_BOT_USERNAME")
+	if botUsername == "" {
+		return fmt.Errorf("TELEGRAM_BOT_USERNAME not set")
+	}
+
+	fmt.Printf("Stripe configuration validated successfully:\n")
+	fmt.Printf("  - API Key: %s...%s\n", stripe.Key[:8], stripe.Key[len(stripe.Key)-4:])
+	fmt.Printf("  - Price ID: %s\n", s.SubscriptionPriceID)
+	fmt.Printf("  - Bot Username: %s\n", botUsername)
+	fmt.Printf("  - Webhook Secret: %s...%s\n", s.WebhookSecret[:8], s.WebhookSecret[len(s.WebhookSecret)-4:])
+
+	return nil
 }
 
 // CreateCheckoutSession creates a new Stripe checkout session for a subscription
 func (s *StripeService) CreateCheckoutSession(userID int64, currencyPair, timeframe string) (string, string, error) {
-	// Set success and cancel URLs
+	// Validate required fields
+	if s.SubscriptionPriceID == "" {
+		return "", "", fmt.Errorf("STRIPE_SUBSCRIPTION_PRICE_ID not set")
+	}
+
 	botUsername := os.Getenv("TELEGRAM_BOT_USERNAME")
+	if botUsername == "" {
+		return "", "", fmt.Errorf("TELEGRAM_BOT_USERNAME not set")
+	}
+
+	fmt.Printf("Creating checkout session for user %d, price ID: %s\n", userID, s.SubscriptionPriceID)
+
+	// Set success and cancel URLs
 	successURL := fmt.Sprintf("https://t.me/%s?start=payment_success", botUsername)
 	cancelURL := fmt.Sprintf("https://t.me/%s?start=payment_cancel", botUsername)
 
@@ -44,6 +90,8 @@ func (s *StripeService) CreateCheckoutSession(userID int64, currencyPair, timefr
 		"currency_pair": currencyPair,
 		"timeframe":     timeframe,
 	}
+
+	fmt.Printf("Checkout session metadata: %+v\n", metadata)
 
 	// Create checkout session parameters
 	params := &stripe.CheckoutSessionParams{
@@ -62,9 +110,11 @@ func (s *StripeService) CreateCheckoutSession(userID int64, currencyPair, timefr
 	// Create the checkout session
 	sess, err := session.New(params)
 	if err != nil {
-		return "", "", err
+		fmt.Printf("Failed to create checkout session: %v\n", err)
+		return "", "", fmt.Errorf("failed to create checkout session: %v", err)
 	}
 
+	fmt.Printf("Successfully created checkout session: ID=%s, URL=%s\n", sess.ID, sess.URL)
 	return sess.ID, sess.URL, nil
 }
 
@@ -185,11 +235,23 @@ func (s *StripeService) ProcessSubscriptionPayment(event *stripe.Event) (int64, 
 
 // CancelSubscription cancels a user's Stripe subscription
 func (s *StripeService) CancelSubscription(subscriptionID string) error {
+	if subscriptionID == "" {
+		return fmt.Errorf("subscription ID is empty")
+	}
+
+	fmt.Printf("Attempting to cancel Stripe subscription: %s\n", subscriptionID)
+
 	// Cancel the subscription immediately
 	params := &stripe.SubscriptionCancelParams{}
 
-	_, err := subscription.Cancel(subscriptionID, params)
-	return err
+	canceledSub, err := subscription.Cancel(subscriptionID, params)
+	if err != nil {
+		fmt.Printf("Failed to cancel subscription %s: %v\n", subscriptionID, err)
+		return fmt.Errorf("failed to cancel subscription: %v", err)
+	}
+
+	fmt.Printf("Successfully cancelled subscription %s. Status: %s\n", subscriptionID, canceledSub.Status)
+	return nil
 }
 
 // GetSubscriptionByCustomer retrieves subscription by customer ID
