@@ -185,7 +185,7 @@ func handleMessage(bot *tgbotapi.BotAPI, message *tgbotapi.Message, logger *zero
 
 		// Send welcome message with main menu
 		msg := tgbotapi.NewMessage(chatID, "Welcome to the Forex Predictor Bot! What would you like to do?")
-		msg.ReplyMarkup = getMainMenuKeyboard(state.Stage == StagePremium)
+		msg.ReplyMarkup = getMainMenuKeyboard(isPremiumUser(userID))
 		bot.Send(msg)
 		return
 	}
@@ -196,7 +196,7 @@ func handleMessage(bot *tgbotapi.BotAPI, message *tgbotapi.Message, logger *zero
 	switch message.Text {
 	case "/start", "Main Menu":
 		msg := tgbotapi.NewMessage(chatID, "Welcome to the Forex Predictor Bot! What would you like to do?")
-		msg.ReplyMarkup = getMainMenuKeyboard(state.Stage == StagePremium)
+		msg.ReplyMarkup = getMainMenuKeyboard(isPremiumUser(userID))
 		bot.Send(msg)
 		state.Stage = StageInitial
 	case "Select Currency Pair":
@@ -217,7 +217,7 @@ func handleMessage(bot *tgbotapi.BotAPI, message *tgbotapi.Message, logger *zero
 			msg := tgbotapi.NewMessage(chatID, "Please select both currency pair and timeframe before running prediction.")
 			bot.Send(msg)
 			msg = tgbotapi.NewMessage(chatID, "What would you like to do?")
-			msg.ReplyMarkup = getMainMenuKeyboard(state.Stage == StagePremium)
+			msg.ReplyMarkup = getMainMenuKeyboard(isPremiumUser(userID))
 			bot.Send(msg)
 			state.Stage = StageInitial
 		} else {
@@ -366,7 +366,7 @@ func handleMessage(bot *tgbotapi.BotAPI, message *tgbotapi.Message, logger *zero
 				state.Interval = message.Text
 				msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("Selected timeframe: %s\nYou can now run the prediction.", message.Text))
 				// Attach the main menu keyboard without sending welcome text
-				msg.ReplyMarkup = getMainMenuKeyboard(state.Stage == StagePremium)
+				msg.ReplyMarkup = getMainMenuKeyboard(isPremiumUser(userID))
 				bot.Send(msg)
 				state.Stage = StageInitial
 			} else {
@@ -376,7 +376,7 @@ func handleMessage(bot *tgbotapi.BotAPI, message *tgbotapi.Message, logger *zero
 			}
 		default:
 			msg := tgbotapi.NewMessage(chatID, "Please use the menu buttons to interact with the bot.")
-			msg.ReplyMarkup = getMainMenuKeyboard(state.Stage == StagePremium)
+			msg.ReplyMarkup = getMainMenuKeyboard(isPremiumUser(userID))
 			bot.Send(msg)
 		}
 	}
@@ -423,7 +423,7 @@ func handleCallback(bot *tgbotapi.BotAPI, callback *tgbotapi.CallbackQuery, logg
 
 		// Send confirmation message with main menu keyboard but no welcome text
 		msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("Selected timeframe: %s\nYou can now run the prediction.", interval))
-		msg.ReplyMarkup = getMainMenuKeyboard(state.Stage == StagePremium)
+		msg.ReplyMarkup = getMainMenuKeyboard(isPremiumUser(userID))
 		bot.Send(msg)
 
 		state.Stage = StageInitial
@@ -432,7 +432,7 @@ func handleCallback(bot *tgbotapi.BotAPI, callback *tgbotapi.CallbackQuery, logg
 			msg := tgbotapi.NewMessage(chatID, "Please select both currency pair and timeframe before running prediction.")
 			bot.Send(msg)
 			msg = tgbotapi.NewMessage(chatID, "What would you like to do?")
-			msg.ReplyMarkup = getMainMenuKeyboard(state.Stage == StagePremium)
+			msg.ReplyMarkup = getMainMenuKeyboard(isPremiumUser(userID))
 			bot.Send(msg)
 			state.Stage = StageInitial
 		} else {
@@ -537,7 +537,7 @@ func handleCallback(bot *tgbotapi.BotAPI, callback *tgbotapi.CallbackQuery, logg
 		bot.Send(followUp)
 	} else if data == "main_menu" {
 		msg := tgbotapi.NewMessage(chatID, "What would you like to do?")
-		msg.ReplyMarkup = getMainMenuKeyboard(state.Stage == StagePremium)
+		msg.ReplyMarkup = getMainMenuKeyboard(isPremiumUser(userID))
 		bot.Send(msg)
 		state.Stage = StageInitial
 	} else if data == "confirm_cancel" {
@@ -952,6 +952,20 @@ func contains(slice []string, item string) bool {
 		}
 	}
 	return false
+}
+
+// isPremiumUser checks if user has an active subscription
+func isPremiumUser(userID int64) bool {
+	sub, err := db.GetSubscription(userID)
+	if err != nil {
+		return false
+	}
+
+	if sub == nil {
+		return false
+	}
+
+	return sub.Status == models.PaymentStatusAccepted
 }
 
 // handleCancelSubscription handles the cancellation of a subscription
