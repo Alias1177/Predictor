@@ -277,6 +277,7 @@ func (s *StripeService) GetSubscriptionByCustomer(customerID string) (*stripe.Su
 // FindSubscriptionByUserID attempts to find an active subscription for a user
 // by searching through all active subscriptions and matching metadata
 func (s *StripeService) FindSubscriptionByUserID(userID int64) (*stripe.Subscription, error) {
+	// First try active subscriptions
 	params := &stripe.SubscriptionListParams{
 		Status: stripe.String("active"),
 	}
@@ -284,6 +285,7 @@ func (s *StripeService) FindSubscriptionByUserID(userID int64) (*stripe.Subscrip
 
 	userIDStr := fmt.Sprintf("%d", userID)
 
+	fmt.Printf("Searching for active subscription for user %d\n", userID)
 	iter := subscription.List(params)
 	for iter.Next() {
 		sub := iter.Subscription()
@@ -291,7 +293,7 @@ func (s *StripeService) FindSubscriptionByUserID(userID int64) (*stripe.Subscrip
 		// Check if metadata contains our user_id
 		if sub.Metadata != nil {
 			if metaUserID, exists := sub.Metadata["user_id"]; exists && metaUserID == userIDStr {
-				fmt.Printf("Found subscription for user %d: %s\n", userID, sub.ID)
+				fmt.Printf("Found active subscription for user %d: %s\n", userID, sub.ID)
 				return sub, nil
 			}
 		}
@@ -301,7 +303,34 @@ func (s *StripeService) FindSubscriptionByUserID(userID int64) (*stripe.Subscrip
 		return nil, iter.Err()
 	}
 
-	return nil, fmt.Errorf("no active subscription found for user %d", userID)
+	// If no active subscription found, try all subscriptions (including past_due, cancelled, etc.)
+	fmt.Printf("No active subscription found, searching all subscriptions for user %d\n", userID)
+
+	allParams := &stripe.SubscriptionListParams{}
+	allParams.Filters.AddFilter("limit", "", "100")
+
+	allIter := subscription.List(allParams)
+	for allIter.Next() {
+		sub := allIter.Subscription()
+
+		// Check if metadata contains our user_id
+		if sub.Metadata != nil {
+			if metaUserID, exists := sub.Metadata["user_id"]; exists && metaUserID == userIDStr {
+				fmt.Printf("Found subscription (status: %s) for user %d: %s\n", sub.Status, userID, sub.ID)
+				// Only return if it's not already cancelled
+				if sub.Status != "canceled" {
+					return sub, nil
+				}
+				fmt.Printf("Subscription %s is already cancelled, skipping\n", sub.ID)
+			}
+		}
+	}
+
+	if allIter.Err() != nil {
+		return nil, allIter.Err()
+	}
+
+	return nil, fmt.Errorf("no subscription found for user %d", userID)
 }
 
 // FindSubscriptionAdvanced attempts to find subscription using multiple methods
@@ -315,9 +344,8 @@ func (s *StripeService) FindSubscriptionAdvanced(userID int64, createdAfter int6
 	}
 
 	// Try searching by creation time (recent subscriptions)
-	params := &stripe.SubscriptionListParams{
-		Status: stripe.String("active"),
-	}
+	// Don't filter by status - search all subscriptions
+	params := &stripe.SubscriptionListParams{}
 	params.Filters.AddFilter("limit", "", "50")
 	if createdAfter > 0 {
 		params.Filters.AddFilter("created[gte]", "", fmt.Sprintf("%d", createdAfter))
@@ -338,16 +366,20 @@ func (s *StripeService) FindSubscriptionAdvanced(userID int64, createdAfter int6
 		// Check metadata first
 		if sub.Metadata != nil {
 			if metaUserID, exists := sub.Metadata["user_id"]; exists && metaUserID == userIDStr {
-				fmt.Printf("Found subscription via metadata in time range: %s\n", sub.ID)
-				return sub, nil
+				fmt.Printf("Found subscription via metadata in time range: %s (status: %s)\n", sub.ID, sub.Status)
+				// Only return if not already cancelled
+				if sub.Status != "canceled" {
+					return sub, nil
+				}
+				fmt.Printf("Subscription %s is already cancelled, continuing search\n", sub.ID)
 			}
 
 			// Log all metadata for debugging
 			fmt.Printf("Subscription %s metadata: %+v\n", sub.ID, sub.Metadata)
 		}
 
-		// Collect recent subscriptions as candidates
-		if sub.Created >= createdAfter {
+		// Collect recent subscriptions as candidates (excluding cancelled ones)
+		if sub.Created >= createdAfter && sub.Status != "canceled" {
 			candidates = append(candidates, sub)
 		}
 	}
@@ -368,4 +400,37 @@ func (s *StripeService) FindSubscriptionAdvanced(userID int64, createdAfter int6
 	}
 
 	return nil, fmt.Errorf("no matching subscription found for user %d", userID)
+}
+
+// ListAllSubscriptionsForUser lists all subscriptions for a user (for debugging)
+func (s *StripeService) ListAllSubscriptionsForUser(userID int64) ([]*stripe.Subscription, error) {
+	userIDStr := fmt.Sprintf("%d", userID)
+	var result []*stripe.Subscription
+
+	fmt.Printf("Listing all subscriptions for user %d\n", userID)
+
+	// Search through all subscriptions
+	params := &stripe.SubscriptionListParams{}
+	params.Filters.AddFilter("limit", "", "100")
+
+	iter := subscription.List(params)
+	for iter.Next() {
+		sub := iter.Subscription()
+
+		// Check if this subscription belongs to our user
+		if sub.Metadata != nil {
+			if metaUserID, exists := sub.Metadata["user_id"]; exists && metaUserID == userIDStr {
+				fmt.Printf("Found subscription for user %d: ID=%s, Status=%s, Created=%d\n",
+					userID, sub.ID, sub.Status, sub.Created)
+				result = append(result, sub)
+			}
+		}
+	}
+
+	if iter.Err() != nil {
+		return nil, iter.Err()
+	}
+
+	fmt.Printf("Total subscriptions found for user %d: %d\n", userID, len(result))
+	return result, nil
 }
