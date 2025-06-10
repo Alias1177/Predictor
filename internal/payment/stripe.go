@@ -105,6 +105,9 @@ func (s *StripeService) CreateCheckoutSession(userID int64, currencyPair, timefr
 			},
 		},
 		Metadata: metadata,
+		SubscriptionData: &stripe.CheckoutSessionSubscriptionDataParams{
+			Metadata: metadata,
+		},
 	}
 
 	// Create the checkout session
