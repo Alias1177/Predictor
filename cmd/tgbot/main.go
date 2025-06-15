@@ -29,6 +29,7 @@ var (
 		"EUR/USD", "GBP/USD", "USD/JPY", "AUD/USD",
 		"USD/CAD", "USD/CHF", "NZD/USD", "EUR/GBP",
 		"EUR/JPY", "GBP/JPY", "AUD/CAD", "EUR/CAD",
+		"XAU/USD",
 	}
 
 	supportedIntervals = []string{
