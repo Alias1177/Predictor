@@ -209,20 +209,23 @@ func (db *DB) UpdateStripeSubscriptionID(userID int64, stripeSubscriptionID stri
 
 // GetStripeSubscriptionID gets the Stripe subscription ID for a user
 func (db *DB) GetStripeSubscriptionID(userID int64) (string, error) {
-	var stripeSubID sql.NullString
+	var stripeSubscriptionID sql.NullString
 
 	err := db.QueryRow(`
 		SELECT stripe_subscription_id
 		FROM user_subscriptions
 		WHERE user_id = $1
-	`, userID).Scan(&stripeSubID)
+	`, userID).Scan(&stripeSubscriptionID)
 
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", nil
+		}
 		return "", err
 	}
 
-	if stripeSubID.Valid {
-		return stripeSubID.String, nil
+	if stripeSubscriptionID.Valid {
+		return stripeSubscriptionID.String, nil
 	}
 
 	return "", nil

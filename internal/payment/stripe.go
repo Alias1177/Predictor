@@ -158,6 +158,18 @@ func (s *StripeService) ProcessSubscriptionPayment(event *stripe.Event) (int64, 
 			subscriptionID = sess.Subscription.ID
 		}
 
+		// Handle promo code usage if present
+		if promoCode, exists := sess.Metadata["promo_code"]; exists && promoCode != "" {
+			if discountStr, discountExists := sess.Metadata["discount"]; discountExists {
+				if discount, parseErr := strconv.ParseFloat(discountStr, 64); parseErr == nil {
+					// Note: We would need access to the database here to mark promo code as used
+					// This would require passing the database connection to the stripe service
+					// For now, we'll handle this in the telegram bot when processing the webhook
+					fmt.Printf("Promo code %s used by user %d with discount $%.2f\n", promoCode, userID, discount)
+				}
+			}
+		}
+
 		return userID, models.PaymentStatusAccepted, subscriptionID, nil
 
 	case "payment_intent.succeeded":

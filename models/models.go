@@ -424,3 +424,29 @@ type FundamentalAnalysis struct {
 	MarketRegime       string             `json:"market_regime"`       // Режим рынка
 	RegimeStrength     float64            `json:"regime_strength"`     // Сила режима (0-1)
 }
+
+// PromoCode represents a promotional code for subscription discounts
+type PromoCode struct {
+	ID              int64     `json:"id"`
+	Code            string    `json:"code"`                      // Промокод
+	DiscountPercent int       `json:"discount_percent"`          // Скидка в процентах (0-100)
+	DiscountAmount  float64   `json:"discount_amount,omitempty"` // Фиксированная скидка в долларах
+	IsPercentage    bool      `json:"is_percentage"`             // true - процентная скидка, false - фиксированная
+	UsageLimit      int       `json:"usage_limit"`               // Максимальное количество использований (-1 = неограничено)
+	UsedCount       int       `json:"used_count"`                // Количество использований
+	ExpiresAt       time.Time `json:"expires_at,omitempty"`      // Дата истечения (пустая = не истекает)
+	CreatedAt       time.Time `json:"created_at"`
+	IsActive        bool      `json:"is_active"`             // Активен ли промокод
+	CreatedBy       string    `json:"created_by,omitempty"`  // Кто создал промокод
+	Description     string    `json:"description,omitempty"` // Описание промокода
+}
+
+// PromoCodeUsage represents usage history of promo codes
+type PromoCodeUsage struct {
+	ID          int64     `json:"id"`
+	PromoCodeID int64     `json:"promo_code_id"`
+	UserID      int64     `json:"user_id"`
+	UsedAt      time.Time `json:"used_at"`
+	PaymentID   string    `json:"payment_id,omitempty"` // Stripe payment ID
+	SavedAmount float64   `json:"saved_amount"`         // Сколько пользователь сэкономил
+}

@@ -29,12 +29,15 @@ var (
 		"EUR/USD", "GBP/USD", "USD/JPY", "AUD/USD",
 		"USD/CAD", "USD/CHF", "NZD/USD", "EUR/GBP",
 		"EUR/JPY", "GBP/JPY", "AUD/CAD", "EUR/CAD",
-		"XAU/USD",
+		"XBR/USD",
 	}
 
 	supportedIntervals = []string{
 		"1min", "5min", "15min", "30min", "1h", "4h", "1day",
 	}
+
+	// Промокод для бесплатного доступа - МЕНЯЙ ЗДЕСЬ НА СВОЙ
+	FREE_PROMO_CODE = "FREEACCESS2025"
 
 	// Map to store user states
 	userStates = make(map[int64]*UserState)
@@ -42,16 +45,17 @@ var (
 
 // User state stages
 const (
-	StageInitial          = 0
-	StageAwaitingPair     = 1
-	StageAwaitingInterval = 2
-	StageAwaitingPayment  = 3
-	StagePremium          = 4
+	StageInitial           = 0
+	StageAwaitingPair      = 1
+	StageAwaitingInterval  = 2
+	StageAwaitingFreePromo = 3
+	StageAwaitingPayment   = 4
+	StagePremium           = 5
 )
 
 // UserState represents the current state of a user's interaction
 type UserState struct {
-	Stage        int       // 0: initial, 1: awaiting pair, 2: awaiting interval, 3: awaiting payment, 4: premium
+	Stage        int       // 0: initial, 1: awaiting pair, 2: awaiting interval, 3: awaiting free promo, 4: awaiting payment, 5: premium
 	Symbol       string    // selected currency pair
 	Interval     string    // selected time interval
 	LastActivity time.Time // time of last activity
@@ -297,7 +301,7 @@ func handleMessage(bot *tgbotapi.BotAPI, message *tgbotapi.Message, logger *zero
 
 		keyboard := tgbotapi.NewInlineKeyboardMarkup(
 			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonURL("Pay Now", paymentURL),
+				tgbotapi.NewInlineKeyboardButtonURL("💳 Pay Now", paymentURL),
 			),
 		)
 		msg.ReplyMarkup = keyboard
@@ -556,12 +560,14 @@ Timeframe: %s`,
 
 		msg := tgbotapi.NewMessage(chatID, resultMsg)
 		bot.Send(msg)
-	case "Settings":
-		// Show settings menu
-		isPremium := isPremiumUser(userID)
+	case "Settings", "⚙️ Settings":
 		msg := tgbotapi.NewMessage(chatID, "⚙️ Settings")
-		msg.ReplyMarkup = getSettingsKeyboard(isPremium)
+		msg.ReplyMarkup = getSettingsKeyboard(isPremiumUser(userID))
 		bot.Send(msg)
+	case "🎁 Enter Promo Code":
+		msg := tgbotapi.NewMessage(chatID, "🎁 Enter Promo Code for free access:")
+		bot.Send(msg)
+		state.Stage = StageAwaitingFreePromo
 	case "Cancel Subscription":
 		// Legacy handler - execute cancellation
 		executeCancelSubscription(bot, userID, chatID, logger)
@@ -592,6 +598,46 @@ Timeframe: %s`,
 				msg := tgbotapi.NewMessage(chatID, "Invalid timeframe. Please choose from the list:")
 				bot.Send(msg)
 				sendTimeframeMenu(bot, chatID)
+			}
+		case StageAwaitingFreePromo: // Expecting free promo code
+			promoCode := strings.TrimSpace(message.Text)
+			if promoCode == "" {
+				msg := tgbotapi.NewMessage(chatID, "Enter promo code or use main menu:")
+				msg.ReplyMarkup = getMainMenuKeyboard(isPremiumUser(userID))
+				bot.Send(msg)
+				state.Stage = StageInitial
+				return
+			}
+
+			// Check hardcoded promo code
+			if promoCode == FREE_PROMO_CODE {
+				// Grant free premium access
+				if state.Symbol == "" || state.Interval == "" {
+					state.Symbol = "EUR/USD"
+					state.Interval = "5min"
+				}
+
+				// Create subscription in database with accepted status
+				_, err := db.CreateSubscription(userID, chatID, state.Symbol, state.Interval)
+				if err != nil {
+					logger.Error().Err(err).Int64("user_id", userID).Msg("Error creating free subscription")
+				} else {
+					// Immediately activate subscription
+					err = db.UpdateSubscriptionStatus(userID, models.PaymentStatusAccepted, "promo_"+promoCode)
+					if err != nil {
+						logger.Error().Err(err).Int64("user_id", userID).Msg("Error activating free subscription")
+					}
+				}
+
+				state.Stage = StagePremium
+				msg := tgbotapi.NewMessage(chatID, "🎉 Congratulations! Promo code accepted!\n\n✅ Premium subscription activated FREE!\n🔮 Now you can get predictions!")
+				msg.ReplyMarkup = getMainMenuKeyboard(true)
+				bot.Send(msg)
+			} else {
+				msg := tgbotapi.NewMessage(chatID, "❌ Invalid promo code!\n\nTry again or use main menu:")
+				msg.ReplyMarkup = getMainMenuKeyboard(isPremiumUser(userID))
+				bot.Send(msg)
+				state.Stage = StageInitial
 			}
 		default:
 			msg := tgbotapi.NewMessage(chatID, "Please use the menu buttons to interact with the bot.")
@@ -689,71 +735,8 @@ func handleCallback(bot *tgbotapi.BotAPI, callback *tgbotapi.CallbackQuery, logg
 			return
 		}
 
-		// Send a loading message
-		loadingMsg := tgbotapi.NewMessage(chatID, "Creating payment session...")
-		sentMsg, err := bot.Send(loadingMsg)
-		if err != nil {
-			logger.Error().Err(err).Int64("user_id", userID).Msg("Error sending loading message")
-		}
-
-		// Create subscription in database
-		_, err = db.CreateSubscription(userID, chatID, state.Symbol, state.Interval)
-		if err != nil {
-			logger.Error().Err(err).Int64("user_id", userID).Msg("Error creating subscription")
-			msg := tgbotapi.NewMessage(chatID, "Sorry, there was an error. Please try again later.")
-			bot.Send(msg)
-			return
-		}
-
-		// Create Stripe checkout session
-		sessionID, paymentURL, err := stripeService.CreateCheckoutSession(userID, state.Symbol, state.Interval)
-		if err != nil {
-			logger.Error().Err(err).Int64("user_id", userID).Msg("Error creating Stripe session")
-
-			var errorMsg string
-			if strings.Contains(err.Error(), "STRIPE_SUBSCRIPTION_PRICE_ID not set") {
-				errorMsg = "Payment system configuration error. Please contact support."
-			} else if strings.Contains(err.Error(), "TELEGRAM_BOT_USERNAME not set") {
-				errorMsg = "Bot configuration error. Please contact support."
-			} else if strings.Contains(err.Error(), "No such price") {
-				errorMsg = "Invalid subscription price configuration. Please contact support."
-			} else if strings.Contains(err.Error(), "Invalid API key") {
-				errorMsg = "Payment system authentication error. Please contact support."
-			} else {
-				errorMsg = fmt.Sprintf("Payment system error: %v\n\nPlease try again or contact support.", err)
-			}
-
-			msg := tgbotapi.NewMessage(chatID, errorMsg)
-			bot.Send(msg)
-			return
-		}
-
-		// Save payment info in user state
-		state.PaymentURL = paymentURL
-		state.SessionID = sessionID
-		state.Stage = StageAwaitingPayment
-
-		// Edit the loading message to provide payment instructions
-		editMsg := tgbotapi.NewEditMessageText(
-			chatID,
-			sentMsg.MessageID,
-			fmt.Sprintf("Please complete your payment to access premium predictions."),
-		)
-
-		// Add payment URL button
-		editMsg.ReplyMarkup = &tgbotapi.InlineKeyboardMarkup{
-			InlineKeyboard: [][]tgbotapi.InlineKeyboardButton{
-				{
-					tgbotapi.NewInlineKeyboardButtonURL("Pay Now", paymentURL),
-				},
-			},
-		}
-
-		bot.Send(editMsg)
-
-		// Add follow-up message
-		followUp := tgbotapi.NewMessage(chatID, "After completing payment, return to this chat. Your subscription will be activated automatically.")
-		bot.Send(followUp)
+		// Go directly to payment
+		proceedToPayment(bot, userID, chatID, state, logger)
 	} else if data == "main_menu" {
 		msg := tgbotapi.NewMessage(chatID, "What would you like to do?")
 		msg.ReplyMarkup = getMainMenuKeyboard(isPremiumUser(userID))
@@ -952,28 +935,22 @@ func getMainMenuKeyboard(isPremium bool) tgbotapi.ReplyKeyboardMarkup {
 	if isPremium {
 		return tgbotapi.NewReplyKeyboard(
 			tgbotapi.NewKeyboardButtonRow(
-				tgbotapi.NewKeyboardButton("Select Currency Pair"),
-				tgbotapi.NewKeyboardButton("Select Timeframe"),
+				tgbotapi.NewKeyboardButton("🔮 Run Prediction"),
 			),
 			tgbotapi.NewKeyboardButtonRow(
-				tgbotapi.NewKeyboardButton("Run Prediction"),
-			),
-			tgbotapi.NewKeyboardButtonRow(
-				tgbotapi.NewKeyboardButton("Settings"),
+				tgbotapi.NewKeyboardButton("⚙️ Settings"),
+				tgbotapi.NewKeyboardButton("📊 Select Pair & Timeframe"),
 			),
 		)
 	}
 
 	return tgbotapi.NewReplyKeyboard(
 		tgbotapi.NewKeyboardButtonRow(
-			tgbotapi.NewKeyboardButton("Select Currency Pair"),
-			tgbotapi.NewKeyboardButton("Select Timeframe"),
+			tgbotapi.NewKeyboardButton("📊 Select Pair & Timeframe"),
 		),
 		tgbotapi.NewKeyboardButtonRow(
-			tgbotapi.NewKeyboardButton("Run Prediction"),
-		),
-		tgbotapi.NewKeyboardButtonRow(
-			tgbotapi.NewKeyboardButton("Settings"),
+			tgbotapi.NewKeyboardButton("💎 Subscribe"),
+			tgbotapi.NewKeyboardButton("🎁 Enter Promo Code"),
 		),
 	)
 }
@@ -1444,4 +1421,81 @@ func executeCancelSubscription(bot *tgbotapi.BotAPI, userID, chatID int64, logge
 	bot.Send(menuMsg)
 
 	logger.Info().Int64("user_id", userID).Bool("stripe_success", stripeSuccess).Str("stripe_id", stripeID).Msg("Subscription cancellation completed")
+}
+
+// proceedToPayment handles the payment process with optional promo code
+func proceedToPayment(bot *tgbotapi.BotAPI, userID, chatID int64, state *UserState, logger *zerolog.Logger) {
+	// Send a loading message
+	loadingMsg := tgbotapi.NewMessage(chatID, "Creating payment session...")
+	sentMsg, err := bot.Send(loadingMsg)
+	if err != nil {
+		logger.Error().Err(err).Int64("user_id", userID).Msg("Error sending loading message")
+	}
+
+	// Create subscription in database
+	_, err = db.CreateSubscription(userID, chatID, state.Symbol, state.Interval)
+	if err != nil {
+		logger.Error().Err(err).Int64("user_id", userID).Msg("Error creating subscription")
+		msg := tgbotapi.NewMessage(chatID, "Sorry, there was an error. Please try again later.")
+		bot.Send(msg)
+		return
+	}
+
+	// Create regular checkout session
+	sessionID, paymentURL, err := stripeService.CreateCheckoutSession(userID, state.Symbol, state.Interval)
+
+	if err != nil {
+		logger.Error().Err(err).Int64("user_id", userID).Msg("Error creating Stripe session")
+
+		var errorMsg string
+		if strings.Contains(err.Error(), "STRIPE_SUBSCRIPTION_PRICE_ID not set") {
+			errorMsg = "Payment system configuration error. Please contact support."
+		} else if strings.Contains(err.Error(), "TELEGRAM_BOT_USERNAME not set") {
+			errorMsg = "Bot configuration error. Please contact support."
+		} else if strings.Contains(err.Error(), "No such price") {
+			errorMsg = "Invalid subscription price configuration. Please contact support."
+		} else if strings.Contains(err.Error(), "Invalid API key") {
+			errorMsg = "Payment system authentication error. Please contact support."
+		} else {
+			errorMsg = fmt.Sprintf("Payment system error: %v\n\nPlease try again or contact support.", err)
+		}
+
+		msg := tgbotapi.NewMessage(chatID, errorMsg)
+		bot.Send(msg)
+		return
+	}
+
+	// Save payment info in user state
+	state.PaymentURL = paymentURL
+	state.SessionID = sessionID
+	state.Stage = StageAwaitingPayment
+
+	// Edit the loading message to provide payment instructions
+	editMsg := tgbotapi.NewEditMessageText(
+		chatID,
+		sentMsg.MessageID,
+		"Please complete your payment to access premium predictions.",
+	)
+
+	// Add payment URL button
+	editMsg.ReplyMarkup = &tgbotapi.InlineKeyboardMarkup{
+		InlineKeyboard: [][]tgbotapi.InlineKeyboardButton{
+			{
+				tgbotapi.NewInlineKeyboardButtonURL("💳 Pay Now", paymentURL),
+			},
+		},
+	}
+
+	bot.Send(editMsg)
+
+	// Add follow-up message
+	followUp := tgbotapi.NewMessage(chatID, "After completing payment, return to this chat. Your subscription will be activated automatically.")
+	bot.Send(followUp)
+}
+
+// handlePayment handles payment-related actions
+func handlePayment(bot *tgbotapi.BotAPI, userID, chatID int64, state *UserState, logger *zerolog.Logger) {
+	msg := tgbotapi.NewMessage(chatID, "Waiting for payment completion. If you have already paid, please wait a few minutes for subscription activation.")
+	msg.ReplyMarkup = getMainMenuKeyboard(isPremiumUser(userID))
+	bot.Send(msg)
 }
