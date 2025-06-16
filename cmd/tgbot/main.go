@@ -37,7 +37,8 @@ var (
 	}
 
 	// Промокод для бесплатного доступа - МЕНЯЙ ЗДЕСЬ НА СВОЙ
-	FREE_PROMO_CODE = "FREEACCESS2025"
+	FREE_PROMO_CODE   = "FREEACCESS2025"
+	FREE24_PROMO_CODE = "FREE24"
 
 	// Map to store user states
 	userStates = make(map[int64]*UserState)
@@ -137,7 +138,7 @@ func main() {
 
 // checkExpiredSubscriptions runs periodically to update expired subscriptions
 func checkExpiredSubscriptions() {
-	ticker := time.NewTicker(1 * time.Hour)
+	ticker := time.NewTicker(5 * time.Minute) // Check every 5 minutes for better precision
 	defer ticker.Stop()
 
 	for range ticker.C {
@@ -562,8 +563,25 @@ Timeframe: %s`,
 				return
 			}
 
-			// Check hardcoded promo code
+			// Check hardcoded promo codes
 			if promoCode == FREE_PROMO_CODE {
+				// Check if user already used this promo code
+				hasUsed, err := db.HasUsedPromoCode(userID, promoCode)
+				if err != nil {
+					logger.Error().Err(err).Int64("user_id", userID).Msg("Error checking promo code usage")
+					msg := tgbotapi.NewMessage(chatID, "❌ Error checking promo code. Try again later.")
+					bot.Send(msg)
+					return
+				}
+
+				if hasUsed {
+					msg := tgbotapi.NewMessage(chatID, "❌ You have already used this promo code!\n\nEach promo code can only be used once per user.")
+					msg.ReplyMarkup = getMainMenuKeyboard(isPremiumUser(userID))
+					bot.Send(msg)
+					state.Stage = StageInitial
+					return
+				}
+
 				// Grant free premium access
 				if state.Symbol == "" || state.Interval == "" {
 					state.Symbol = "EUR/USD"
@@ -571,7 +589,7 @@ Timeframe: %s`,
 				}
 
 				// Create subscription in database with accepted status
-				_, err := db.CreateSubscription(userID, chatID, state.Symbol, state.Interval)
+				_, err = db.CreateSubscription(userID, chatID, state.Symbol, state.Interval)
 				if err != nil {
 					logger.Error().Err(err).Int64("user_id", userID).Msg("Error creating free subscription")
 				} else {
@@ -584,6 +602,46 @@ Timeframe: %s`,
 
 				state.Stage = StagePremium
 				msg := tgbotapi.NewMessage(chatID, "🎉 Congratulations! Promo code accepted!\n\n✅ Premium subscription activated FREE!\n🔮 Now you can get predictions!")
+				msg.ReplyMarkup = getMainMenuKeyboard(true)
+				bot.Send(msg)
+			} else if promoCode == FREE24_PROMO_CODE {
+				// Check if user already used this promo code
+				hasUsed, err := db.HasUsedPromoCode(userID, promoCode)
+				if err != nil {
+					logger.Error().Err(err).Int64("user_id", userID).Msg("Error checking promo code usage")
+					msg := tgbotapi.NewMessage(chatID, "❌ Error checking promo code. Try again later.")
+					bot.Send(msg)
+					return
+				}
+
+				if hasUsed {
+					msg := tgbotapi.NewMessage(chatID, "❌ You have already used this promo code!\n\nEach promo code can only be used once per user.")
+					msg.ReplyMarkup = getMainMenuKeyboard(isPremiumUser(userID))
+					bot.Send(msg)
+					state.Stage = StageInitial
+					return
+				}
+
+				// Grant 24-hour free access
+				if state.Symbol == "" || state.Interval == "" {
+					state.Symbol = "EUR/USD"
+					state.Interval = "5min"
+				}
+
+				// Create subscription with 24-hour expiry
+				_, err = db.CreateSubscriptionWithCustomExpiry(userID, chatID, state.Symbol, state.Interval, time.Now().Add(24*time.Hour))
+				if err != nil {
+					logger.Error().Err(err).Int64("user_id", userID).Msg("Error creating 24h subscription")
+				} else {
+					// Immediately activate subscription
+					err = db.UpdateSubscriptionStatus(userID, models.PaymentStatusAccepted, "promo_"+promoCode)
+					if err != nil {
+						logger.Error().Err(err).Int64("user_id", userID).Msg("Error activating 24h subscription")
+					}
+				}
+
+				state.Stage = StagePremium
+				msg := tgbotapi.NewMessage(chatID, "🎉 Congratulations! FREE24 activated!\n\n✅ Premium access for 24 hours!\n🔮 Start getting predictions!\n\n⏰ Your access will expire in 24 hours.")
 				msg.ReplyMarkup = getMainMenuKeyboard(true)
 				bot.Send(msg)
 			} else {

@@ -44,7 +44,7 @@ services:
       target: webhook
     restart: on-failure  # Изменено с "always" на "on-failure"
     ports:
-      - "8080:8080" # HTTPS сервер (самоподписанный сертификат)
+      - "8081:8080" # HTTPS сервер (самоподписанный сертификат)
     environment:
       - TZ=UTC
       - USE_HTTPS=true

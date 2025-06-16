@@ -230,3 +230,54 @@ func (db *DB) GetStripeSubscriptionID(userID int64) (string, error) {
 
 	return "", nil
 }
+
+// CreateSubscriptionWithCustomExpiry creates a subscription with custom expiry time
+func (db *DB) CreateSubscriptionWithCustomExpiry(userID, chatID int64, currencyPair, timeframe string, expiresAt time.Time) (*models.UserSubscription, error) {
+	now := time.Now()
+	sub := &models.UserSubscription{
+		UserID:       userID,
+		ChatID:       chatID,
+		Status:       models.PaymentStatusPending,
+		CreatedAt:    now,
+		ExpiresAt:    expiresAt, // Custom expiry time
+		CurrencyPair: currencyPair,
+		Timeframe:    timeframe,
+	}
+
+	_, err := db.Exec(`
+		INSERT INTO user_subscriptions (
+			user_id, chat_id, status, created_at, expires_at, currency_pair, timeframe
+		) VALUES ($1, $2, $3, $4, $5, $6, $7)
+		ON CONFLICT (user_id) 
+		DO UPDATE SET 
+			chat_id = EXCLUDED.chat_id,
+			status = EXCLUDED.status,
+			created_at = EXCLUDED.created_at,
+			expires_at = EXCLUDED.expires_at, 
+			currency_pair = EXCLUDED.currency_pair,
+			timeframe = EXCLUDED.timeframe
+	`,
+		sub.UserID, sub.ChatID, sub.Status, sub.CreatedAt, sub.ExpiresAt, sub.CurrencyPair, sub.Timeframe)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return sub, nil
+}
+
+// HasUsedPromoCode checks if user has already used a specific promo code
+func (db *DB) HasUsedPromoCode(userID int64, promoCode string) (bool, error) {
+	var count int
+	err := db.QueryRow(`
+		SELECT COUNT(*) 
+		FROM user_subscriptions 
+		WHERE user_id = $1 AND payment_id = $2
+	`, userID, "promo_"+promoCode).Scan(&count)
+
+	if err != nil {
+		return false, err
+	}
+
+	return count > 0, nil
+}
