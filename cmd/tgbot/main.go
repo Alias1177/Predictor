@@ -30,6 +30,9 @@ var (
 		"USD/CAD", "USD/CHF", "NZD/USD", "EUR/GBP",
 		"EUR/JPY", "GBP/JPY", "AUD/CAD", "EUR/CAD",
 		"XBR/USD",
+		// Криптовалютные пары
+		"ETH/USD", "SOL/USD", "XRP/USD", "ADA/USD",
+		"AAVE/USD", "BNB/USD", "DOT/USD",
 	}
 
 	supportedIntervals = []string{
