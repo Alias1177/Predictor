@@ -137,9 +137,9 @@ func RunBacktest(ctx context.Context, client *config.Client, config *models.Conf
 		// Определяем фактический результат
 		actualOutcome := "NEUTRAL"
 		if priceChange > 0 {
-			actualOutcome = "UP"
+			actualOutcome = "BUY"
 		} else if priceChange < 0 {
-			actualOutcome = "DOWN"
+			actualOutcome = "SELL"
 		}
 
 		result.ActualOutcome = actualOutcome

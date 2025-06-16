@@ -272,7 +272,7 @@ type Divergence struct {
 // TradingSuggestion содержит конкретные рекомендации по торговле
 type TradingSuggestion struct {
 	Action          string   `json:"action"`            // BUY, SELL, NO_TRADE
-	Direction       string   `json:"direction"`         // UP, DOWN, NEUTRAL
+	Direction       string   `json:"direction"`         // BUY, SELL, NEUTRAL
 	Confidence      string   `json:"confidence"`        // HIGH, MEDIUM, LOW
 	Score           float64  `json:"score"`             // Числовой показатель уверенности
 	EntryPrice      float64  `json:"entry_price"`       // Рекомендуемая цена входа

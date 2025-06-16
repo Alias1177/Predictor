@@ -10,8 +10,8 @@ import (
 
 // CalculateMarketFeatures вычисляет основные рыночные признаки
 func CalculateMarketFeatures(candles []models.Candle) ([]float64, error) {
-	if len(candles) < 50 {
-		return nil, fmt.Errorf("insufficient data: need at least 50 candles")
+	if len(candles) < 20 {
+		return nil, fmt.Errorf("insufficient data: need at least 20 candles, got %d", len(candles))
 	}
 
 	features := make([]float64, 4)

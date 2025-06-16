@@ -26,7 +26,7 @@ func DetermineStopLoss(candles []models.Candle, indicators *models.TechnicalIndi
 	}
 
 	atrStop := 0.0
-	if direction == "UP" {
+	if direction == "BUY" {
 		atrStop = currentPrice - (indicators.ATR * atrMultiplier)
 	} else {
 		atrStop = currentPrice + (indicators.ATR * atrMultiplier)
@@ -34,7 +34,7 @@ func DetermineStopLoss(candles []models.Candle, indicators *models.TechnicalIndi
 
 	// Метод 2: Стоп на основе уровней поддержки/сопротивления
 	structureStop := 0.0
-	if direction == "UP" {
+	if direction == "BUY" {
 		// Для длинной позиции ищем ближайший уровень поддержки
 		supportLevel := findNearestSupportLevel(currentPrice, indicators.Support)
 		structureStop = supportLevel * 0.998 // Чуть ниже уровня поддержки
@@ -46,7 +46,7 @@ func DetermineStopLoss(candles []models.Candle, indicators *models.TechnicalIndi
 
 	// Метод 3: Процентный стоп (запасной вариант)
 	percentStop := 0.0
-	if direction == "UP" {
+	if direction == "BUY" {
 		percentStop = currentPrice * 0.99 // 1% стоп-лосс для длинной позиции
 	} else {
 		percentStop = currentPrice * 1.01 // 1% стоп-лосс для короткой позиции
@@ -54,7 +54,7 @@ func DetermineStopLoss(candles []models.Candle, indicators *models.TechnicalIndi
 
 	// Выбираем наиболее консервативный стоп
 	var stop float64
-	if direction == "UP" {
+	if direction == "BUY" {
 		// Для длинной позиции выбираем наибольший (самый близкий к цене) стоп
 		stop = math.Max(atrStop, structureStop)
 		stop = math.Max(stop, percentStop)

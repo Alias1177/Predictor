@@ -189,9 +189,9 @@ func EnhancedPrediction(
 	netScore := (bullishScore - bearishScore) * confidenceMultiplier
 
 	if netScore > 1.5 {
-		direction = "UP"
+		direction = "BUY"
 	} else if netScore < -1.5 {
-		direction = "DOWN"
+		direction = "SELL"
 	}
 
 	// Confidence calculation
@@ -207,7 +207,7 @@ func EnhancedPrediction(
 	// Decision factors for explanation
 	var factors []string
 
-	if direction == "UP" {
+	if direction == "BUY" {
 		if regime.Type == "TRENDING" && regime.Direction == "BULLISH" && regime.Strength > 0.6 {
 			factors = append(factors, fmt.Sprintf("Strong bullish market regime (%.1f strength)", regime.Strength))
 		}
@@ -242,7 +242,7 @@ func EnhancedPrediction(
 		if indicators.TradeSignal == "STRONG_BUY" || indicators.TradeSignal == "BUY" {
 			factors = append(factors, "Multiple indicators aligning bullish: "+indicators.TradeSignal)
 		}
-	} else if direction == "DOWN" {
+	} else if direction == "SELL" {
 		if regime.Type == "TRENDING" && regime.Direction == "BEARISH" && regime.Strength > 0.6 {
 			factors = append(factors, fmt.Sprintf("Strong bearish market regime (%.1f strength)", regime.Strength))
 		}
@@ -281,7 +281,7 @@ func EnhancedPrediction(
 
 	// If we don't have at least 2 factors, add more generic ones
 	if len(factors) < 2 {
-		if direction == "UP" {
+		if direction == "BUY" {
 			if indicators.MACDHist > 0 {
 				factors = append(factors, "Positive MACD histogram")
 			}
@@ -294,7 +294,7 @@ func EnhancedPrediction(
 			if currentPrice > indicators.BBMiddle {
 				factors = append(factors, "Price above Bollinger middle band")
 			}
-		} else if direction == "DOWN" {
+		} else if direction == "SELL" {
 			if indicators.MACDHist < 0 {
 				factors = append(factors, "Negative MACD histogram")
 			}
@@ -312,9 +312,9 @@ func EnhancedPrediction(
 
 	// Still need more factors? Add very generic ones
 	if len(factors) < 2 {
-		if direction == "UP" {
+		if direction == "BUY" {
 			factors = append(factors, "General market strength")
-		} else if direction == "DOWN" {
+		} else if direction == "SELL" {
 			factors = append(factors, "General market weakness")
 		} else {
 			factors = append(factors, "Market in consolidation")
@@ -328,7 +328,7 @@ func EnhancedPrediction(
 				bullishScore += 1.5 * divergence.SignalStrength
 
 				// Добавляем в факторы для объяснения если направление совпадает
-				if direction == "UP" || (netScore > 0 && direction == "NEUTRAL") {
+				if direction == "BUY" || (netScore > 0 && direction == "NEUTRAL") {
 					factors = append(factors, fmt.Sprintf("Регулярная бычья дивергенция RSI (сила %.2f)",
 						divergence.SignalStrength))
 				}
@@ -336,7 +336,7 @@ func EnhancedPrediction(
 				bearishScore += 1.5 * divergence.SignalStrength
 
 				// Добавляем в факторы для объяснения если направление совпадает
-				if direction == "DOWN" || (netScore < 0 && direction == "NEUTRAL") {
+				if direction == "SELL" || (netScore < 0 && direction == "NEUTRAL") {
 					factors = append(factors, fmt.Sprintf("Регулярная медвежья дивергенция RSI (сила %.2f)",
 						divergence.SignalStrength))
 				}
@@ -346,14 +346,14 @@ func EnhancedPrediction(
 			if divergence.Direction == "BULLISH" {
 				bullishScore += 1.0 * divergence.SignalStrength
 
-				if direction == "UP" || (netScore > 0 && direction == "NEUTRAL") {
+				if direction == "BUY" || (netScore > 0 && direction == "NEUTRAL") {
 					factors = append(factors, fmt.Sprintf("Скрытая бычья дивергенция RSI (сила %.2f)",
 						divergence.SignalStrength))
 				}
 			} else if divergence.Direction == "BEARISH" {
 				bearishScore += 1.0 * divergence.SignalStrength
 
-				if direction == "DOWN" || (netScore < 0 && direction == "NEUTRAL") {
+				if direction == "SELL" || (netScore < 0 && direction == "NEUTRAL") {
 					factors = append(factors, fmt.Sprintf("Скрытая медвежья дивергенция RSI (сила %.2f)",
 						divergence.SignalStrength))
 				}
@@ -391,7 +391,7 @@ func EnhancedPrediction(
 	if direction == "NEUTRAL" || confidence == "LOW" {
 		tradingSuggestion.Action = "NO_TRADE"
 	} else {
-		if direction == "UP" {
+		if direction == "BUY" {
 			tradingSuggestion.Action = "BUY"
 		} else {
 			tradingSuggestion.Action = "SELL"

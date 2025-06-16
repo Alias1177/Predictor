@@ -907,7 +907,7 @@ func handlePaymentSuccess(bot *tgbotapi.BotAPI, userID, chatID int64) {
 
 		// Notify about manual activation
 		msg := tgbotapi.NewMessage(chatID, "Thank you for your payment!\n Your subscription has been activated.\n"+
-			"\n🚨Attention: Refusal of responsibility\n\nThe trading signals provided are intended exclusively for information and educational purposes. They are not an investment recommendation and cannot be considered as a financial council.\n\nThe user agrees that: \n• All trade decisions are made by him at his own risk. \n• He undertakes to use no more than 1-2% of the deposit per transaction. \n• He realizes that trade in financial markets is associated with a high level of risk. \n• The company is not responsible for the possible losses incurred as a result of the use of signals.\n\nUsing this service, you confirm that you are familiar with the risks and take full responsibility for your actions.\n\nHow to Read a Signal: Educational Guide\n\nEach signal you receive includes important data. Here's how to interpret it:\n\n⸻\n\n1. Direction\nThis shows whether the model expects the price to go UP (buy) or DOWN (sell).\nExample: Direction: DOWN means you may consider selling the asset.\n\n⸻\n\n2. Confidence\nThis indicates how strong the model's prediction is.\n • LOW: Less reliable, trade with caution.\n • MEDIUM: Moderate confidence.\n • HIGH: Strong signal with higher probability.\n\nYou should only trade when the confidence is HIGH or very close to it.\n\n⸻\n\n3. Score\nThis is a numerical value showing the strength and direction of the signal.\n • Positive scores (e.g., +5.0) = Buying pressure (BUY)\n • Negative scores (e.g., -5.0) = Selling pressure (SELL)\n • Values around 0 = Unclear direction, avoid trading.\n\nAs a rule of thumb:\n • Score > +4 → Strong Buy\n • Score < -4 → Strong Sell\n\n⸻\n\n4. Market Regime & Volatility\nThis tells you the current market conditions:\n • Trending: Prices are moving in one direction (up or down).\n • Ranging: Prices are moving sideways (no strong trend).\n • Volatility shows how active the market is. Higher volatility = more movement, more risk.\n\nUse this to decide whether it's a good time to enter a trade.\n\n⸻\n\n5. Indicators\nYou'll see technical indicators like RSI, MACD, Bollinger Bands, and more. These confirm the signal.\nFor example:\n • RSI under 50 = bearish pressure\n • MACD negative = bearish trend\n • Price near resistance = higher chance of reversal\n\n⸻\n\n6. Decision Factors\nThis section lists key technical signals the model uses to make its decision:\n • Patterns like Shooting Star, Double Top, Engulfing = Price reversal signals\n • Rejection at support/resistance zones\n • Indicator alignment (multiple indicators agreeing)\n\n⸻\n\n7. Trading Recommendations\nIncludes a sample trade setup:\n • Action: What to do (BUY/SELL)\n • Entry Price: Where to enter the trade\n • Stop Loss: Where to limit your loss\n • Take Profit: Where to close with a profit\n • Risk/Reward Ratio: Balance between risk and reward\n • Recommended Position Size: Based on 1% risk of your total capital\n\nYou're responsible for managing your risk.\nDo not trade emotionally or use high leverage. Stick to 1-2% risk per trade.\n\n⸻\n\nNote:\nThis is not financial advice. You trade at your own risk. For deeper knowledge, check out our PDF guide:\n\nhttps://t.me/Trade_Plus_Online_Bot")
+			"\n🚨Attention: Refusal of responsibility\n\nThe trading signals provided are intended exclusively for information and educational purposes. They are not an investment recommendation and cannot be considered as a financial council.\n\nThe user agrees that: \n• All trade decisions are made by him at his own risk. \n• He undertakes to use no more than 1-2% of the deposit per transaction. \n• He realizes that trade in financial markets is associated with a high level of risk. \n• The company is not responsible for the possible losses incurred as a result of the use of signals.\n\nUsing this service, you confirm that you are familiar with the risks and take full responsibility for your actions.\n\nHow to Read a Signal: Educational Guide\n\nEach signal you receive includes important data. Here's how to interpret it:\n\n⸻\n\n1. Direction\nThis shows whether the model expects the price to go BUY (long) or SELL (short).\nExample: Direction: SELL means you may consider selling the asset.\n\n⸻\n\n2. Confidence\nThis indicates how strong the model's prediction is.\n • LOW: Less reliable, trade with caution.\n • MEDIUM: Moderate confidence.\n • HIGH: Strong signal with higher probability.\n\nYou should only trade when the confidence is HIGH or very close to it.\n\n⸻\n\n3. Score\nThis is a numerical value showing the strength and direction of the signal.\n • Positive scores (e.g., +5.0) = Buying pressure (BUY)\n • Negative scores (e.g., -5.0) = Selling pressure (SELL)\n • Values around 0 = Unclear direction, avoid trading.\n\nAs a rule of thumb:\n • Score > +4 → Strong Buy\n • Score < -4 → Strong Sell\n\n⸻\n\n4. Market Regime & Volatility\nThis tells you the current market conditions:\n • Trending: Prices are moving in one direction (up or down).\n • Ranging: Prices are moving sideways (no strong trend).\n • Volatility shows how active the market is. Higher volatility = more movement, more risk.\n\nUse this to decide whether it's a good time to enter a trade.\n\n⸻\n\n5. Indicators\nYou'll see technical indicators like RSI, MACD, Bollinger Bands, and more. These confirm the signal.\nFor example:\n • RSI under 50 = bearish pressure\n • MACD negative = bearish trend\n • Price near resistance = higher chance of reversal\n\n⸻\n\n6. Decision Factors\nThis section lists key technical signals the model uses to make its decision:\n • Patterns like Shooting Star, Double Top, Engulfing = Price reversal signals\n • Rejection at support/resistance zones\n • Indicator alignment (multiple indicators agreeing)\n\n⸻\n\n7. Trading Recommendations\nIncludes a sample trade setup:\n • Action: What to do (BUY/SELL)\n • Entry Price: Where to enter the trade\n • Stop Loss: Where to limit your loss\n • Take Profit: Where to close with a profit\n • Risk/Reward Ratio: Balance between risk and reward\n • Recommended Position Size: Based on 1% risk of your total capital\n\nYou're responsible for managing your risk.\nDo not trade emotionally or use high leverage. Stick to 1-2% risk per trade.\n\n⸻\n\nNote:\nThis is not financial advice. You trade at your own risk. For deeper knowledge, check out our PDF guide:\n\nhttps://t.me/Trade_Plus_Online_Bot")
 		bot.Send(msg)
 	} else if sub.Status == models.PaymentStatusAccepted {
 		// Subscription is already active
@@ -1119,9 +1119,10 @@ func runPrediction(bot *tgbotapi.BotAPI, chatID int64, state *UserState, logger 
 	}
 
 	// Market regime and anomalies
+	logger.Debug().Int("candles_count", len(candles)).Msg("Starting market regime classification")
 	regime, err := anomaly.EnhancedMarketRegimeClassification(candles)
 	if err != nil {
-		logger.Error().Err(err).Msg("Failed to classify market regime")
+		logger.Error().Err(err).Int("candles_count", len(candles)).Msg("Failed to classify market regime")
 		regime = &models.MarketRegime{
 			Type:             "UNKNOWN",
 			Strength:         0,
@@ -1131,6 +1132,8 @@ func runPrediction(bot *tgbotapi.BotAPI, chatID int64, state *UserState, logger 
 			LiquidityRating:  "NORMAL",
 			PriceStructure:   "UNKNOWN",
 		}
+	} else {
+		logger.Debug().Str("regime_type", regime.Type).Float64("strength", regime.Strength).Str("volatility", regime.VolatilityLevel).Msg("Market regime calculated successfully")
 	}
 	anomalyData := anomaly.DetectMarketAnomalies(candles)
 
@@ -1155,9 +1158,9 @@ func runPrediction(bot *tgbotapi.BotAPI, chatID int64, state *UserState, logger 
 
 	// Direction emoji
 	directionEmoji := "⚖️"
-	if prediction.Direction == "UP" {
+	if prediction.Direction == "BUY" {
 		directionEmoji = "🔼"
-	} else if prediction.Direction == "DOWN" {
+	} else if prediction.Direction == "SELL" {
 		directionEmoji = "🔽"
 	}
 

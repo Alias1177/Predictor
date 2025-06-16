@@ -1,7 +1,6 @@
 package anomaly
 
 import (
-	"fmt"
 	"math"
 
 	"github.com/Alias1177/Predictor/internal/utils"
@@ -110,7 +109,8 @@ func MarketStateHMM(candles []models.Candle, windowSize int) *models.MarketRegim
 
 // Улучшенная функция определения режима
 func EnhancedMarketRegimeClassification(candles []models.Candle) (*models.MarketRegime, error) {
-	if len(candles) < 50 {
+	// Уменьшаем минимальное количество свечей для работы
+	if len(candles) < 20 {
 		return &models.MarketRegime{
 			Type:             "UNKNOWN",
 			Strength:         0,
@@ -122,9 +122,15 @@ func EnhancedMarketRegimeClassification(candles []models.Candle) (*models.Market
 		}, nil
 	}
 
+	// Если данных мало, используем упрощенный подход
+	if len(candles) < 50 {
+		return calculateSimpleRegime(candles), nil
+	}
+
 	features, err := utils.CalculateMarketFeatures(candles)
 	if err != nil {
-		return nil, fmt.Errorf("failed to calculate market features: %w", err)
+		// Fallback к упрощенному методу если основной не работает
+		return calculateSimpleRegime(candles), nil
 	}
 
 	// Определяем режим на основе признаков
@@ -244,16 +250,86 @@ func calculateMeanStd(values []float64) (float64, float64) {
 	}
 	mean /= float64(len(values))
 
-	if len(values) <= 1 {
-		return mean, 0 // Невозможно вычислить std для одного значения
-	}
-
 	variance := 0.0
 	for _, v := range values {
-		variance += math.Pow(v-mean, 2)
+		variance += (v - mean) * (v - mean)
 	}
-	// Используем n-1 для несмещенной оценки
-	variance /= float64(len(values) - 1)
+	variance /= float64(len(values))
 
 	return mean, math.Sqrt(variance)
+}
+
+// calculateSimpleRegime - упрощенный метод для определения режима с малым количеством данных
+func calculateSimpleRegime(candles []models.Candle) *models.MarketRegime {
+	if len(candles) < 5 {
+		return &models.MarketRegime{
+			Type:             "UNKNOWN",
+			Strength:         0,
+			Direction:        "NEUTRAL",
+			VolatilityLevel:  "NORMAL",
+			MomentumStrength: 0,
+			LiquidityRating:  "NORMAL",
+			PriceStructure:   "UNKNOWN",
+		}
+	}
+
+	// Простой анализ тренда
+	firstPrice := candles[0].Close
+	lastPrice := candles[len(candles)-1].Close
+	priceChange := (lastPrice - firstPrice) / firstPrice
+
+	// Волатильность как среднее от true range
+	totalRange := 0.0
+	for i := 1; i < len(candles); i++ {
+		high := candles[i].High
+		low := candles[i].Low
+		prevClose := candles[i-1].Close
+
+		trueRange := math.Max(high-low, math.Max(math.Abs(high-prevClose), math.Abs(low-prevClose)))
+		totalRange += trueRange
+	}
+	avgTrueRange := totalRange / float64(len(candles)-1)
+	volatilityRatio := avgTrueRange / lastPrice
+
+	regime := &models.MarketRegime{
+		LiquidityRating: "NORMAL",
+		PriceStructure:  "UNKNOWN",
+	}
+
+	// Определяем волатильность
+	if volatilityRatio > 0.02 { // 2%
+		regime.VolatilityLevel = "HIGH"
+	} else if volatilityRatio < 0.005 { // 0.5%
+		regime.VolatilityLevel = "LOW"
+	} else {
+		regime.VolatilityLevel = "NORMAL"
+	}
+
+	// Определяем тип режима и направление
+	if math.Abs(priceChange) > 0.02 { // 2% изменение цены
+		regime.Type = "TRENDING"
+		regime.Strength = math.Min(math.Abs(priceChange)*10, 1.0) // Масштабируем
+		if priceChange > 0 {
+			regime.Direction = "BULLISH"
+			regime.PriceStructure = "TRENDING_UP"
+		} else {
+			regime.Direction = "BEARISH"
+			regime.PriceStructure = "TRENDING_DOWN"
+		}
+	} else {
+		regime.Type = "RANGING"
+		regime.Direction = "NEUTRAL"
+		regime.Strength = 0.3
+	}
+
+	// Простой моментум
+	if len(candles) >= 10 {
+		midPrice := candles[len(candles)/2].Close
+		momentumChange := (lastPrice - midPrice) / midPrice
+		regime.MomentumStrength = math.Min(math.Abs(momentumChange)*20, 1.0)
+	} else {
+		regime.MomentumStrength = 0.5
+	}
+
+	return regime
 }
