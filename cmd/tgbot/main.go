@@ -29,10 +29,10 @@ var (
 		"EUR/USD", "GBP/USD", "USD/JPY", "AUD/USD",
 		"USD/CAD", "USD/CHF", "NZD/USD", "EUR/GBP",
 		"EUR/JPY", "GBP/JPY", "AUD/CAD", "EUR/CAD",
-		"XBR/USD",
+		"XBR/USD", "XAU/USD", "XAG/USD",
 		// Криптовалютные пары
 		"ETH/USD", "SOL/USD", "XRP/USD", "ADA/USD",
-		"AAVE/USD", "BNB/USD", "DOT/USD",
+		"AAVE/USD", "BNB/USD", "DOT/USD", "BTC/USD",
 	}
 
 	supportedIntervals = []string{
@@ -866,6 +866,9 @@ func handleCallback(bot *tgbotapi.BotAPI, callback *tgbotapi.CallbackQuery, logg
 		editMsg.ParseMode = "Markdown"
 		editMsg.ReplyMarkup = &keyboard
 		bot.Send(editMsg)
+	} else if data == "separator_crypto" {
+		// Just acknowledge separator button without action
+		bot.Request(tgbotapi.NewCallback(callback.ID, "🚀 Crypto section"))
 	}
 }
 
@@ -1017,8 +1020,21 @@ func sendCurrencyPairMenu(bot *tgbotapi.BotAPI, chatID int64) {
 	var keyboard [][]tgbotapi.InlineKeyboardButton
 	var row []tgbotapi.InlineKeyboardButton
 
-	for i, pair := range supportedPairs {
-		// Create 2 pairs per row
+	// Split pairs into forex and crypto for better organization
+	forexPairs := []string{
+		"EUR/USD", "GBP/USD", "USD/JPY", "AUD/USD",
+		"USD/CAD", "USD/CHF", "NZD/USD", "EUR/GBP",
+		"EUR/JPY", "GBP/JPY", "AUD/CAD", "EUR/CAD",
+		"XBR/USD", "XAU/USD", "XAG/USD",
+	}
+
+	cryptoPairs := []string{
+		"BTC/USD", "ETH/USD", "SOL/USD", "XRP/USD",
+		"ADA/USD", "AAVE/USD", "BNB/USD", "DOT/USD",
+	}
+
+	// Add forex pairs (2 per row)
+	for i, pair := range forexPairs {
 		if i%2 == 0 && i > 0 {
 			keyboard = append(keyboard, row)
 			row = []tgbotapi.InlineKeyboardButton{}
@@ -1026,7 +1042,27 @@ func sendCurrencyPairMenu(bot *tgbotapi.BotAPI, chatID int64) {
 		row = append(row, tgbotapi.NewInlineKeyboardButtonData(pair, "pair_"+pair))
 	}
 
-	// Add the last row if it has any buttons
+	// Add the last forex row if it has any buttons
+	if len(row) > 0 {
+		keyboard = append(keyboard, row)
+		row = []tgbotapi.InlineKeyboardButton{}
+	}
+
+	// Add separator for crypto section
+	keyboard = append(keyboard, []tgbotapi.InlineKeyboardButton{
+		tgbotapi.NewInlineKeyboardButtonData("━━━ 🚀 CRYPTO ━━━", "separator_crypto"),
+	})
+
+	// Add crypto pairs (2 per row)
+	for i, pair := range cryptoPairs {
+		if i%2 == 0 && i > 0 {
+			keyboard = append(keyboard, row)
+			row = []tgbotapi.InlineKeyboardButton{}
+		}
+		row = append(row, tgbotapi.NewInlineKeyboardButtonData(pair, "pair_"+pair))
+	}
+
+	// Add the last crypto row if it has any buttons
 	if len(row) > 0 {
 		keyboard = append(keyboard, row)
 	}
