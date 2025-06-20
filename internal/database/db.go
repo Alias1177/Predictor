@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/Alias1177/Predictor/models"
@@ -68,13 +69,35 @@ func createTables(db *sql.DB) error {
 		)
 	`)
 
+	if err != nil {
+		return err
+	}
+
 	// Add the new column if it doesn't exist (for existing databases)
 	_, _ = db.Exec(`
 		ALTER TABLE user_subscriptions 
 		ADD COLUMN IF NOT EXISTS stripe_subscription_id TEXT
 	`)
 
-	return err
+	// Create processed events table for webhook deduplication
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS processed_events (
+			event_id TEXT PRIMARY KEY,
+			created_at TIMESTAMP NOT NULL DEFAULT NOW()
+		)
+	`)
+
+	if err != nil {
+		return err
+	}
+
+	// Create index for performance
+	_, _ = db.Exec(`
+		CREATE INDEX IF NOT EXISTS idx_processed_events_created 
+		ON processed_events(created_at)
+	`)
+
+	return nil
 }
 
 // CreateSubscription creates a new subscription for a user
@@ -163,9 +186,43 @@ func (db *DB) UpdateSubscriptionStatus(userID int64, status string, paymentID st
 	return err
 }
 
+// ActivateSubscription активирует подписку и устанавливает правильную дату истечения
+func (db *DB) ActivateSubscription(userID int64, paymentID string, subscriptionID string) error {
+	_, err := db.Exec(`
+		UPDATE user_subscriptions
+		SET status = $1, 
+			payment_id = $2,
+			stripe_subscription_id = $3,
+			expires_at = NOW() + INTERVAL '1 month',
+			created_at = NOW()
+		WHERE user_id = $4
+	`, models.PaymentStatusAccepted, paymentID, subscriptionID, userID)
+
+	return err
+}
+
 // CheckAndUpdateExpirations checks for expired subscriptions and updates their status
 func (db *DB) CheckAndUpdateExpirations() error {
-	_, err := db.Exec(`
+	// Сначала логируем, какие подписки будут закрыты
+	rows, err := db.Query(`
+		SELECT user_id, expires_at, created_at 
+		FROM user_subscriptions 
+		WHERE status = $1 AND expires_at <= NOW()
+	`, models.PaymentStatusAccepted)
+
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var userID int64
+			var expiresAt, createdAt time.Time
+			rows.Scan(&userID, &expiresAt, &createdAt)
+			log.Printf("Closing subscription for user %d: created=%v, expires=%v, now=%v",
+				userID, createdAt, expiresAt, time.Now())
+		}
+	}
+
+	// Затем обновляем
+	_, err = db.Exec(`
 		UPDATE user_subscriptions
 		SET status = $1
 		WHERE status = $2 AND expires_at <= NOW()
@@ -280,4 +337,24 @@ func (db *DB) HasUsedPromoCode(userID int64, promoCode string) (bool, error) {
 	}
 
 	return count > 0, nil
+}
+
+// IsEventProcessed проверяет, было ли уже обработано это событие
+func (db *DB) IsEventProcessed(eventID string) (bool, error) {
+	var count int
+	err := db.QueryRow(`
+		SELECT COUNT(*) FROM processed_events 
+		WHERE event_id = $1 AND created_at > NOW() - INTERVAL '7 days'
+	`, eventID).Scan(&count)
+	return count > 0, err
+}
+
+// MarkEventProcessed отмечает событие как обработанное
+func (db *DB) MarkEventProcessed(eventID string) error {
+	_, err := db.Exec(`
+		INSERT INTO processed_events (event_id, created_at) 
+		VALUES ($1, NOW())
+		ON CONFLICT (event_id) DO NOTHING
+	`, eventID)
+	return err
 }

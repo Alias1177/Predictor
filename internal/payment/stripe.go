@@ -95,9 +95,10 @@ func (s *StripeService) CreateCheckoutSession(userID int64, currencyPair, timefr
 
 	// Create checkout session parameters
 	params := &stripe.CheckoutSessionParams{
-		SuccessURL: stripe.String(successURL),
-		CancelURL:  stripe.String(cancelURL),
-		Mode:       stripe.String(string(stripe.CheckoutSessionModeSubscription)),
+		ClientReferenceID: stripe.String(fmt.Sprintf("%d", userID)), // КРИТИЧНО для поиска подписок!
+		SuccessURL:        stripe.String(successURL),
+		CancelURL:         stripe.String(cancelURL),
+		Mode:              stripe.String(string(stripe.CheckoutSessionModeSubscription)),
 		LineItems: []*stripe.CheckoutSessionLineItemParams{
 			{
 				Price:    stripe.String(s.SubscriptionPriceID),
@@ -138,18 +139,41 @@ func (s *StripeService) ProcessSubscriptionPayment(event *stripe.Event) (int64, 
 			return 0, "", "", fmt.Errorf("failed to parse checkout session: %v", err)
 		}
 
-		// Log the session details for debugging
-		fmt.Printf("Checkout session completed: ID=%s, Mode=%s\n", sess.ID, sess.Mode)
-
-		// Extract user ID from metadata
-		userIDStr, ok := sess.Metadata["user_id"]
-		if !ok {
-			return 0, "", "", fmt.Errorf("user_id not found in session metadata")
+		// Детальное логирование
+		fmt.Printf("Checkout session details:\n")
+		fmt.Printf("  ID: %s\n", sess.ID)
+		fmt.Printf("  ClientReferenceID: %s\n", sess.ClientReferenceID)
+		fmt.Printf("  Metadata: %+v\n", sess.Metadata)
+		fmt.Printf("  Subscription ID: %v\n", sess.Subscription)
+		if sess.Subscription != nil {
+			fmt.Printf("  Subscription.ID: %s\n", sess.Subscription.ID)
 		}
 
-		userID, err := strconv.ParseInt(userIDStr, 10, 64)
-		if err != nil {
-			return 0, "", "", fmt.Errorf("invalid user_id: %v", err)
+		// Сначала пытаемся получить user_id из client_reference_id
+		var userID int64
+		var err error
+
+		if sess.ClientReferenceID != "" {
+			userID, err = strconv.ParseInt(sess.ClientReferenceID, 10, 64)
+			if err != nil {
+				fmt.Printf("Invalid ClientReferenceID: %s, trying metadata\n", sess.ClientReferenceID)
+			} else {
+				fmt.Printf("Found userID from ClientReferenceID: %d\n", userID)
+			}
+		}
+
+		// Fallback на metadata если ClientReferenceID не работает
+		if userID == 0 {
+			userIDStr, ok := sess.Metadata["user_id"]
+			if !ok {
+				return 0, "", "", fmt.Errorf("user_id not found in session ClientReferenceID or metadata")
+			}
+
+			userID, err = strconv.ParseInt(userIDStr, 10, 64)
+			if err != nil {
+				return 0, "", "", fmt.Errorf("invalid user_id: %v", err)
+			}
+			fmt.Printf("Found userID from metadata: %d\n", userID)
 		}
 
 		// Extract subscription ID if available
@@ -162,15 +186,74 @@ func (s *StripeService) ProcessSubscriptionPayment(event *stripe.Event) (int64, 
 		if promoCode, exists := sess.Metadata["promo_code"]; exists && promoCode != "" {
 			if discountStr, discountExists := sess.Metadata["discount"]; discountExists {
 				if discount, parseErr := strconv.ParseFloat(discountStr, 64); parseErr == nil {
-					// Note: We would need access to the database here to mark promo code as used
-					// This would require passing the database connection to the stripe service
-					// For now, we'll handle this in the telegram bot when processing the webhook
 					fmt.Printf("Promo code %s used by user %d with discount $%.2f\n", promoCode, userID, discount)
 				}
 			}
 		}
 
 		return userID, models.PaymentStatusAccepted, subscriptionID, nil
+
+	case "invoice.payment_succeeded":
+		// Повторяющийся платеж по подписке
+		var invoice stripe.Invoice
+		if err := json.Unmarshal(event.Data.Raw, &invoice); err != nil {
+			return 0, "", "", fmt.Errorf("failed to parse invoice: %v", err)
+		}
+
+		fmt.Printf("Invoice payment succeeded: ID=%s\n", invoice.ID)
+
+		// Получаем подписку
+		if invoice.Subscription == nil {
+			return 0, "", "", fmt.Errorf("no subscription in invoice")
+		}
+
+		// Получаем подписку из Stripe
+		sub, err := subscription.Get(invoice.Subscription.ID, nil)
+		if err != nil {
+			return 0, "", "", fmt.Errorf("failed to get subscription: %v", err)
+		}
+
+		fmt.Printf("Subscription details: ID=%s, Status=%s, Metadata=%+v\n",
+			sub.ID, sub.Status, sub.Metadata)
+
+		// Извлекаем user_id из метаданных подписки
+		userIDStr, ok := sub.Metadata["user_id"]
+		if !ok {
+			return 0, "", "", fmt.Errorf("user_id not found in subscription metadata")
+		}
+
+		userID, err := strconv.ParseInt(userIDStr, 10, 64)
+		if err != nil {
+			return 0, "", "", fmt.Errorf("invalid user_id: %v", err)
+		}
+
+		fmt.Printf("Renewing subscription for user %d, subscription ID: %s\n", userID, sub.ID)
+
+		// Продлеваем подписку на месяц
+		return userID, models.PaymentStatusAccepted, sub.ID, nil
+
+	case "customer.subscription.created":
+		// Подписка создана
+		var sub stripe.Subscription
+		if err := json.Unmarshal(event.Data.Raw, &sub); err != nil {
+			return 0, "", "", fmt.Errorf("failed to parse subscription: %v", err)
+		}
+
+		fmt.Printf("Subscription created: ID=%s, Status=%s, Metadata=%+v\n",
+			sub.ID, sub.Status, sub.Metadata)
+
+		// Обновляем stripe_subscription_id в базе, но не меняем статус
+		// Статус изменится когда придет checkout.session.completed
+		userIDStr, ok := sub.Metadata["user_id"]
+		if ok {
+			if userID, err := strconv.ParseInt(userIDStr, 10, 64); err == nil {
+				fmt.Printf("Subscription created for user %d: %s\n", userID, sub.ID)
+				// Возвращаем 0 для userID чтобы не обновлять статус, только сохранить ID подписки
+				return 0, "", sub.ID, nil
+			}
+		}
+
+		return 0, "", "", nil // Не обрабатываем если нет user_id
 
 	case "payment_intent.succeeded":
 		// Payment intent succeeded (for one-time payments)
@@ -290,17 +373,44 @@ func (s *StripeService) GetSubscriptionByCustomer(customerID string) (*stripe.Su
 }
 
 // FindSubscriptionByUserID attempts to find an active subscription for a user
-// by searching through all active subscriptions and matching metadata
+// by searching through checkout sessions and subscription metadata
 func (s *StripeService) FindSubscriptionByUserID(userID int64) (*stripe.Subscription, error) {
+	userIDStr := fmt.Sprintf("%d", userID)
+
+	fmt.Printf("Searching for subscription for user %d\n", userID)
+
+	// Сначала ищем все checkout sessions с нашим client_reference_id
+	sessionParams := &stripe.CheckoutSessionListParams{}
+	sessionParams.Filters.AddFilter("limit", "", "100")
+
+	sessionIter := session.List(sessionParams)
+	for sessionIter.Next() {
+		sess := sessionIter.CheckoutSession()
+
+		// Проверяем client_reference_id
+		if sess.ClientReferenceID == userIDStr && sess.Subscription != nil {
+			// Нашли сессию с нашим userID, получаем подписку
+			sub, err := subscription.Get(sess.Subscription.ID, nil)
+			if err == nil && sub.Status != "canceled" {
+				fmt.Printf("Found subscription via ClientReferenceID: %s (status: %s)\n", sub.ID, sub.Status)
+				return sub, nil
+			}
+		}
+	}
+
+	if sessionIter.Err() != nil {
+		fmt.Printf("Error searching checkout sessions: %v\n", sessionIter.Err())
+	}
+
+	// Fallback на поиск по метаданным подписки
+	fmt.Printf("Searching subscriptions by metadata for user %d\n", userID)
+
 	// First try active subscriptions
 	params := &stripe.SubscriptionListParams{
 		Status: stripe.String("active"),
 	}
-	params.Filters.AddFilter("limit", "", "100") // Search through recent subscriptions
+	params.Filters.AddFilter("limit", "", "100")
 
-	userIDStr := fmt.Sprintf("%d", userID)
-
-	fmt.Printf("Searching for active subscription for user %d\n", userID)
 	iter := subscription.List(params)
 	for iter.Next() {
 		sub := iter.Subscription()
@@ -308,7 +418,7 @@ func (s *StripeService) FindSubscriptionByUserID(userID int64) (*stripe.Subscrip
 		// Check if metadata contains our user_id
 		if sub.Metadata != nil {
 			if metaUserID, exists := sub.Metadata["user_id"]; exists && metaUserID == userIDStr {
-				fmt.Printf("Found active subscription for user %d: %s\n", userID, sub.ID)
+				fmt.Printf("Found active subscription via metadata for user %d: %s\n", userID, sub.ID)
 				return sub, nil
 			}
 		}

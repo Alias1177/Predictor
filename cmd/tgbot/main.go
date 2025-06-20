@@ -305,6 +305,51 @@ func handleMessage(bot *tgbotapi.BotAPI, message *tgbotapi.Message, logger *zero
 			msg := tgbotapi.NewMessage(chatID, "✅ Payment system configuration is valid")
 			bot.Send(msg)
 		}
+	case "/check_sub":
+		// Проверить подписку с детальной информацией
+		sub, err := db.GetSubscription(userID)
+		if err != nil {
+			msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("Database error: %v", err))
+			bot.Send(msg)
+			return
+		}
+
+		if sub == nil {
+			msg := tgbotapi.NewMessage(chatID, "❌ No subscription found in database")
+			bot.Send(msg)
+			return
+		}
+
+		timeLeft := sub.ExpiresAt.Sub(time.Now())
+		var timeLeftStr string
+		if timeLeft > 0 {
+			days := int(timeLeft.Hours() / 24)
+			hours := int(timeLeft.Hours()) % 24
+			timeLeftStr = fmt.Sprintf("%d days, %d hours", days, hours)
+		} else {
+			timeLeftStr = "EXPIRED"
+		}
+
+		msg := fmt.Sprintf(
+			"📊 Subscription Details:\n"+
+				"Status: %s\n"+
+				"Created: %s\n"+
+				"Expires: %s\n"+
+				"Time left: %s\n"+
+				"Current time: %s\n"+
+				"Currency: %s\n"+
+				"Timeframe: %s",
+			sub.Status,
+			sub.CreatedAt.Format("2006-01-02 15:04:05"),
+			sub.ExpiresAt.Format("2006-01-02 15:04:05"),
+			timeLeftStr,
+			time.Now().Format("2006-01-02 15:04:05"),
+			sub.CurrencyPair,
+			sub.Timeframe,
+		)
+
+		respMsg := tgbotapi.NewMessage(chatID, msg)
+		bot.Send(respMsg)
 	case "/debug":
 		// Debug command to check subscription data
 		sub, err := db.GetSubscription(userID)

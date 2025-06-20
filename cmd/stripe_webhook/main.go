@@ -62,7 +62,8 @@ func main() {
 
 	// Set up webhook handler
 	mux.HandleFunc("/webhook", func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("Received webhook request from %s", r.RemoteAddr)
+		log.Printf("Received webhook request from %s, Event-ID: %s",
+			r.RemoteAddr, r.Header.Get("Stripe-Event-Id"))
 
 		if r.Method != "POST" {
 			log.Printf("Invalid method: %s", r.Method)
@@ -76,9 +77,6 @@ func main() {
 			http.Error(w, "Error reading request body", http.StatusBadRequest)
 			return
 		}
-
-		// Log the headers for debugging
-		log.Printf("Request headers: %v", r.Header)
 
 		// Get the signature header
 		signature := r.Header.Get("Stripe-Signature")
@@ -100,6 +98,17 @@ func main() {
 
 		log.Printf("Webhook event verified. Event type: %s, Event ID: %s", event.Type, event.ID)
 
+		// Проверяем, не обработали ли мы уже это событие
+		processed, err := db.IsEventProcessed(event.ID)
+		if err != nil {
+			log.Printf("Error checking event processing status: %v", err)
+		} else if processed {
+			log.Printf("Event %s already processed, skipping", event.ID)
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(map[string]string{"status": "already_processed"})
+			return
+		}
+
 		// Log the raw payload for debugging
 		log.Printf("Raw event data: %s", string(body))
 
@@ -116,24 +125,25 @@ func main() {
 		// If we have a valid user ID and status, update the subscription
 		if userID > 0 {
 			paymentID := event.ID
-			if err := db.UpdateSubscriptionStatus(userID, status, paymentID); err != nil {
-				log.Printf("Failed to update subscription status: %v", err)
-				http.Error(w, "Error updating subscription", http.StatusInternalServerError)
-				return
-			}
 
-			// Update Stripe subscription ID if available
-			if subscriptionID != "" {
-				if err := db.UpdateStripeSubscriptionID(userID, subscriptionID); err != nil {
-					log.Printf("Failed to update Stripe subscription ID: %v", err)
-					// Don't fail the webhook for this, just log the error
-				} else {
-					log.Printf("Updated Stripe subscription ID for user %d: %s", userID, subscriptionID)
+			// Если статус accepted, используем ActivateSubscription для правильной даты истечения
+			if status == "accepted" {
+				if err := db.ActivateSubscription(userID, paymentID, subscriptionID); err != nil {
+					log.Printf("Failed to activate subscription: %v", err)
+					http.Error(w, "Error activating subscription", http.StatusInternalServerError)
+					return
 				}
+				log.Printf("Successfully activated subscription for user %d with payment ID %s", userID, paymentID)
+			} else {
+				// Для других статусов используем старую функцию
+				if err := db.UpdateSubscriptionStatus(userID, status, paymentID); err != nil {
+					log.Printf("Failed to update subscription status: %v", err)
+					http.Error(w, "Error updating subscription", http.StatusInternalServerError)
+					return
+				}
+				log.Printf("Successfully updated subscription for user %d to status %s with payment ID %s",
+					userID, status, paymentID)
 			}
-
-			log.Printf("Successfully updated subscription for user %d to status %s with payment ID %s",
-				userID, status, paymentID)
 
 			// Verify the update was successful
 			sub, err := db.GetSubscription(userID)
@@ -145,8 +155,16 @@ func main() {
 			} else {
 				log.Printf("Warning: Could not find subscription after update for user %d", userID)
 			}
+		} else if subscriptionID != "" {
+			// Обрабатываем случай customer.subscription.created - только обновляем subscription ID
+			log.Printf("Processing subscription creation event with subscription ID: %s", subscriptionID)
 		} else {
 			log.Printf("Warning: No valid userID found in event")
+		}
+
+		// Отмечаем событие как обработанное
+		if err := db.MarkEventProcessed(event.ID); err != nil {
+			log.Printf("Error marking event as processed: %v", err)
 		}
 
 		// Return a success response to Stripe
