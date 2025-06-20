@@ -196,7 +196,7 @@ func handleMessage(bot *tgbotapi.BotAPI, message *tgbotapi.Message, logger *zero
 
 		// Send welcome message with main menu
 		msg := tgbotapi.NewMessage(chatID, "Welcome to the Forex Predictor Bot! What would you like to do?")
-		msg.ReplyMarkup = getMainMenuKeyboard(isPremiumUser(userID))
+		msg.ReplyMarkup = getMainMenuKeyboard(shouldShowPremiumMenu(userID))
 		bot.Send(msg)
 		return
 	}
@@ -207,7 +207,7 @@ func handleMessage(bot *tgbotapi.BotAPI, message *tgbotapi.Message, logger *zero
 	switch message.Text {
 	case "/start", "Main Menu":
 		msg := tgbotapi.NewMessage(chatID, "Welcome to the Forex Predictor Bot! What would you like to do?")
-		msg.ReplyMarkup = getMainMenuKeyboard(isPremiumUser(userID))
+		msg.ReplyMarkup = getMainMenuKeyboard(shouldShowPremiumMenu(userID))
 		bot.Send(msg)
 		state.Stage = StageInitial
 	case "📊 Select Pair & Timeframe":
@@ -231,7 +231,7 @@ func handleMessage(bot *tgbotapi.BotAPI, message *tgbotapi.Message, logger *zero
 			msg := tgbotapi.NewMessage(chatID, "Please select both currency pair and timeframe before running prediction.")
 			bot.Send(msg)
 			msg = tgbotapi.NewMessage(chatID, "What would you like to do?")
-			msg.ReplyMarkup = getMainMenuKeyboard(isPremiumUser(userID))
+			msg.ReplyMarkup = getMainMenuKeyboard(shouldShowPremiumMenu(userID))
 			bot.Send(msg)
 			state.Stage = StageInitial
 		} else {
@@ -822,7 +822,8 @@ func handleCallback(bot *tgbotapi.BotAPI, callback *tgbotapi.CallbackQuery, logg
 	} else if data == "main_menu" {
 		bot.Request(tgbotapi.NewCallback(callback.ID, ""))
 		msg := tgbotapi.NewMessage(chatID, "Welcome to the Forex Predictor Bot! What would you like to do?")
-		msg.ReplyMarkup = getMainMenuKeyboard(isPremiumUser(userID))
+		msg.ReplyMarkup = getMainMenuKeyboard(shouldShowPremiumMenu(userID))
+		bot.Send(msg)
 		state.Stage = StageInitial
 	} else if data == "subscribe_now" {
 		// Handle subscription
@@ -873,7 +874,7 @@ func handleCallback(bot *tgbotapi.BotAPI, callback *tgbotapi.CallbackQuery, logg
 		executeCancelSubscription(bot, userID, chatID, logger)
 	} else if data == "settings_menu" {
 		// Return to settings menu
-		isPremium := isPremiumUser(userID)
+		isPremium := shouldShowPremiumMenu(userID)
 		msg := tgbotapi.NewMessage(chatID, "⚙️ Settings")
 		msg.ReplyMarkup = getSettingsKeyboard(isPremium)
 		bot.Send(msg)
@@ -1427,6 +1428,22 @@ func isPremiumUser(userID int64) bool {
 	}
 
 	return sub.Status == models.PaymentStatusAccepted
+}
+
+// shouldShowPremiumMenu determines if premium menu should be shown based on user state and subscription
+func shouldShowPremiumMenu(userID int64) bool {
+	// First check if user actually has premium subscription
+	if isPremiumUser(userID) {
+		return true
+	}
+
+	// Check if user is in premium state (after successful promo code or payment)
+	if state, exists := userStates[userID]; exists {
+		// Show premium menu if user is in premium stage or has TEST promo active
+		return state.Stage == StagePremium || (state.Stage == StageAwaitingPayment && state.PromoCode == "TEST")
+	}
+
+	return false
 }
 
 // executeCancelSubscription handles the subscription cancellation logic
