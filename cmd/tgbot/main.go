@@ -706,7 +706,7 @@ Timeframe: %s`,
 
 				if hasUsed {
 					msg := tgbotapi.NewMessage(chatID, "❌ You have already used this promo code!\n\nEach promo code can only be used once per user.")
-					msg.ReplyMarkup = getMainMenuKeyboard(isPremiumUser(userID))
+					msg.ReplyMarkup = getMainMenuKeyboard(shouldShowPremiumMenu(userID))
 					bot.Send(msg)
 					state.Stage = StageInitial
 					return
@@ -728,13 +728,13 @@ Timeframe: %s`,
 				proceedToPaymentWithPromo(bot, userID, chatID, state, logger, promoCode)
 			} else {
 				msg := tgbotapi.NewMessage(chatID, "❌ Invalid promo code!\n\nTry again or use main menu:")
-				msg.ReplyMarkup = getMainMenuKeyboard(isPremiumUser(userID))
+				msg.ReplyMarkup = getMainMenuKeyboard(shouldShowPremiumMenu(userID))
 				bot.Send(msg)
 				state.Stage = StageInitial
 			}
 		default:
 			msg := tgbotapi.NewMessage(chatID, "Please use the menu buttons to interact with the bot.")
-			msg.ReplyMarkup = getMainMenuKeyboard(isPremiumUser(userID))
+			msg.ReplyMarkup = getMainMenuKeyboard(shouldShowPremiumMenu(userID))
 			bot.Send(msg)
 		}
 	}
@@ -1692,12 +1692,18 @@ func proceedToPaymentWithPromo(bot *tgbotapi.BotAPI, userID, chatID int64, state
 	}
 
 	bot.Send(editMsg)
+
+	// Send new menu with premium buttons
+	menuMsg := tgbotapi.NewMessage(chatID, "You now have access to premium features! Use the menu below:")
+	menuMsg.ReplyMarkup = getMainMenuKeyboard(shouldShowPremiumMenu(userID))
+	bot.Send(menuMsg)
+
 	logger.Info().Int64("user_id", userID).Str("session_id", sessionID).Str("promo_code", promoCode).Msg("Created payment session with promo code")
 }
 
 // handlePayment handles payment-related actions
 func handlePayment(bot *tgbotapi.BotAPI, userID, chatID int64, state *UserState, logger *zerolog.Logger) {
 	msg := tgbotapi.NewMessage(chatID, "Waiting for payment completion. If you have already paid, please wait a few minutes for subscription activation.")
-	msg.ReplyMarkup = getMainMenuKeyboard(isPremiumUser(userID))
+	msg.ReplyMarkup = getMainMenuKeyboard(shouldShowPremiumMenu(userID))
 	bot.Send(msg)
 }
