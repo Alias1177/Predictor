@@ -42,6 +42,7 @@ var (
 	// Промокод для бесплатного доступа - МЕНЯЙ ЗДЕСЬ НА СВОЙ
 	FREE_PROMO_CODE   = "FREEACCESS2025"
 	FREE24_PROMO_CODE = "FREE24"
+	TEST_PROMO_CODE   = "TEST" // Промокод для 30-дневного бесплатного доступа
 
 	// Map to store user states
 	userStates = make(map[int64]*UserState)
@@ -65,6 +66,7 @@ type UserState struct {
 	LastActivity time.Time // time of last activity
 	PaymentURL   string    // Stripe payment URL
 	SessionID    string    // Stripe session ID
+	PromoCode    string    // Current promo code being used
 }
 
 // Global variables for database and payment service
@@ -692,6 +694,38 @@ Timeframe: %s`,
 				msg := tgbotapi.NewMessage(chatID, "🎉 Congratulations! FREE24 activated!\n\n✅ Premium access for 24 hours!\n🔮 Start getting predictions!\n\n⏰ Your access will expire in 24 hours.")
 				msg.ReplyMarkup = getMainMenuKeyboard(true)
 				bot.Send(msg)
+			} else if promoCode == TEST_PROMO_CODE {
+				// Check if user already used this promo code
+				hasUsed, err := db.HasUsedPromoCode(userID, promoCode)
+				if err != nil {
+					logger.Error().Err(err).Int64("user_id", userID).Msg("Error checking promo code usage")
+					msg := tgbotapi.NewMessage(chatID, "❌ Error checking promo code. Try again later.")
+					bot.Send(msg)
+					return
+				}
+
+				if hasUsed {
+					msg := tgbotapi.NewMessage(chatID, "❌ You have already used this promo code!\n\nEach promo code can only be used once per user.")
+					msg.ReplyMarkup = getMainMenuKeyboard(isPremiumUser(userID))
+					bot.Send(msg)
+					state.Stage = StageInitial
+					return
+				}
+
+				// Set default pair and interval if not set
+				if state.Symbol == "" || state.Interval == "" {
+					state.Symbol = "EUR/USD"
+					state.Interval = "5min"
+				}
+
+				// Save promo code in state
+				state.PromoCode = promoCode
+
+				msg := tgbotapi.NewMessage(chatID, "🎉 TEST promo code accepted!\n\n💳 Now you'll be redirected to payment with special pricing.\n\n🔄 Creating payment session...")
+				bot.Send(msg)
+
+				// Proceed to payment with special price
+				proceedToPaymentWithPromo(bot, userID, chatID, state, logger, promoCode)
 			} else {
 				msg := tgbotapi.NewMessage(chatID, "❌ Invalid promo code!\n\nTry again or use main menu:")
 				msg.ReplyMarkup = getMainMenuKeyboard(isPremiumUser(userID))
@@ -789,7 +823,6 @@ func handleCallback(bot *tgbotapi.BotAPI, callback *tgbotapi.CallbackQuery, logg
 		bot.Request(tgbotapi.NewCallback(callback.ID, ""))
 		msg := tgbotapi.NewMessage(chatID, "Welcome to the Forex Predictor Bot! What would you like to do?")
 		msg.ReplyMarkup = getMainMenuKeyboard(isPremiumUser(userID))
-		bot.Send(msg)
 		state.Stage = StageInitial
 	} else if data == "subscribe_now" {
 		// Handle subscription
@@ -895,7 +928,7 @@ func handleCallback(bot *tgbotapi.BotAPI, callback *tgbotapi.CallbackQuery, logg
 		text := "🤖 *About This Bot*\n\n" +
 			"💡 *Premium subscription includes:*\n" +
 			"• ⚡ Faster processing\n" +
-			"• 🎯 Advanced features\n" +
+			"• �� Advanced features\n" +
 			"• 🔄 Priority support\n" +
 			"• 📊 Detailed analytics\n\n" +
 			"👥 Support: @support\n" +
@@ -1591,6 +1624,58 @@ func proceedToPayment(bot *tgbotapi.BotAPI, userID, chatID int64, state *UserSta
 	// Add follow-up message
 	followUp := tgbotapi.NewMessage(chatID, "After completing payment, return to this chat. Your subscription will be activated automatically.")
 	bot.Send(followUp)
+
+	logger.Info().Int64("user_id", userID).Str("session_id", sessionID).Str("payment_url", paymentURL).Msg("Created payment session")
+}
+
+// proceedToPaymentWithPromo handles the payment process with promo code
+func proceedToPaymentWithPromo(bot *tgbotapi.BotAPI, userID, chatID int64, state *UserState, logger *zerolog.Logger, promoCode string) {
+	// Send a loading message
+	loadingMsg := tgbotapi.NewMessage(chatID, "Creating payment session with promo code...")
+	sentMsg, err := bot.Send(loadingMsg)
+	if err != nil {
+		logger.Error().Err(err).Int64("user_id", userID).Msg("Error sending loading message")
+	}
+
+	// Create subscription in database
+	_, err = db.CreateSubscription(userID, chatID, state.Symbol, state.Interval)
+	if err != nil {
+		logger.Error().Err(err).Int64("user_id", userID).Msg("Error creating subscription")
+		msg := tgbotapi.NewMessage(chatID, "Sorry, there was an error. Please try again later.")
+		bot.Send(msg)
+		return
+	}
+
+	// Create checkout session with promo code
+	sessionID, paymentURL, err := stripeService.CreateCheckoutSessionWithPromo(userID, state.Symbol, state.Interval, promoCode)
+
+	if err != nil {
+		logger.Error().Err(err).Int64("user_id", userID).Msg("Error creating Stripe session with promo")
+		msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("Payment system error: %v\n\nPlease try again or contact support.", err))
+		bot.Send(msg)
+		return
+	}
+
+	// Save payment info in user state
+	state.PaymentURL = paymentURL
+	state.SessionID = sessionID
+	state.Stage = StageAwaitingPayment
+
+	// Edit the loading message to provide payment instructions
+	var editMsg tgbotapi.EditMessageTextConfig
+	if sentMsg.MessageID != 0 {
+		editMsg = tgbotapi.NewEditMessageText(chatID, sentMsg.MessageID,
+			fmt.Sprintf("🎯 %s promo activated!\n\n💳 Please complete your payment:\n%s\n\n✅ Click the link above to pay\n💰 Special pricing applied!\n⏰ Link expires in 30 minutes\n\n🔙 To cancel, use /cancel", promoCode, paymentURL))
+	} else {
+		// Fallback if we couldn't get message ID
+		msg := tgbotapi.NewMessage(chatID,
+			fmt.Sprintf("🎯 %s promo activated!\n\n💳 Please complete your payment:\n%s\n\n✅ Click the link above to pay\n💰 Special pricing applied!\n⏰ Link expires in 30 minutes\n\n🔙 To cancel, use /cancel", promoCode, paymentURL))
+		bot.Send(msg)
+		return
+	}
+
+	bot.Send(editMsg)
+	logger.Info().Int64("user_id", userID).Str("session_id", sessionID).Str("promo_code", promoCode).Msg("Created payment session with promo code")
 }
 
 // handlePayment handles payment-related actions

@@ -122,6 +122,70 @@ func (s *StripeService) CreateCheckoutSession(userID int64, currencyPair, timefr
 	return sess.ID, sess.URL, nil
 }
 
+// CreateCheckoutSessionWithPromo creates a new Stripe checkout session with promo code support
+func (s *StripeService) CreateCheckoutSessionWithPromo(userID int64, currencyPair, timeframe, promoCode string) (string, string, error) {
+	// Validate required fields
+	priceID := s.SubscriptionPriceID
+
+	// Special handling for TEST promo code
+	if promoCode == "TEST" {
+		priceID = "price_1RYWsKGLgFy5Oc1p0KKNjgcW"
+	}
+
+	botUsername := os.Getenv("TELEGRAM_BOT_USERNAME")
+	if botUsername == "" {
+		return "", "", fmt.Errorf("TELEGRAM_BOT_USERNAME not set")
+	}
+
+	fmt.Printf("Creating checkout session for user %d, price ID: %s, promo: %s\n", userID, priceID, promoCode)
+
+	// Set success and cancel URLs
+	successURL := fmt.Sprintf("https://t.me/%s?start=payment_success", botUsername)
+	cancelURL := fmt.Sprintf("https://t.me/%s?start=payment_cancel", botUsername)
+
+	// Create metadata for the session
+	metadata := map[string]string{
+		"user_id":       fmt.Sprintf("%d", userID),
+		"currency_pair": currencyPair,
+		"timeframe":     timeframe,
+	}
+
+	// Add promo code to metadata if provided
+	if promoCode != "" {
+		metadata["promo_code"] = promoCode
+	}
+
+	fmt.Printf("Checkout session metadata: %+v\n", metadata)
+
+	// Create checkout session parameters
+	params := &stripe.CheckoutSessionParams{
+		ClientReferenceID: stripe.String(fmt.Sprintf("%d", userID)),
+		SuccessURL:        stripe.String(successURL),
+		CancelURL:         stripe.String(cancelURL),
+		Mode:              stripe.String(string(stripe.CheckoutSessionModeSubscription)),
+		LineItems: []*stripe.CheckoutSessionLineItemParams{
+			{
+				Price:    stripe.String(priceID),
+				Quantity: stripe.Int64(1),
+			},
+		},
+		Metadata: metadata,
+		SubscriptionData: &stripe.CheckoutSessionSubscriptionDataParams{
+			Metadata: metadata,
+		},
+	}
+
+	// Create the checkout session
+	sess, err := session.New(params)
+	if err != nil {
+		fmt.Printf("Failed to create checkout session: %v\n", err)
+		return "", "", fmt.Errorf("failed to create checkout session: %v", err)
+	}
+
+	fmt.Printf("Successfully created checkout session: ID=%s, URL=%s\n", sess.ID, sess.URL)
+	return sess.ID, sess.URL, nil
+}
+
 // VerifyWebhookSignature verifies the signature of a Stripe webhook event
 func (s *StripeService) VerifyWebhookSignature(payload []byte, signature string) (*stripe.Event, error) {
 	event, err := webhook.ConstructEvent(payload, signature, s.WebhookSecret)
