@@ -46,6 +46,13 @@ var (
 
 	// Map to store user states
 	userStates = make(map[int64]*UserState)
+
+	// Даты истечения промокодов
+	promoExpirationDates = map[string]time.Time{
+		"FREEACCESS2025": time.Date(2025, 3, 1, 0, 0, 0, 0, time.UTC),
+		"FREE24":         time.Date(2025, 2, 15, 0, 0, 0, 0, time.UTC),
+		"TEST":           time.Date(2025, 2, 1, 0, 0, 0, 0, time.UTC),
+	}
 )
 
 // User state stages
@@ -130,6 +137,11 @@ func main() {
 
 	// Start a goroutine to regularly check for expired subscriptions
 	go checkExpiredSubscriptions()
+
+	// Запускаем таймеры для каждого промокода
+	for promoCode, expirationDate := range promoExpirationDates {
+		go schedulePromoNotification(bot, promoCode, expirationDate, &logger)
+	}
 
 	// Start handling updates
 	for update := range updates {
@@ -1706,4 +1718,94 @@ func handlePayment(bot *tgbotapi.BotAPI, userID, chatID int64, state *UserState,
 	msg := tgbotapi.NewMessage(chatID, "Waiting for payment completion. If you have already paid, please wait a few minutes for subscription activation.")
 	msg.ReplyMarkup = getMainMenuKeyboard(shouldShowPremiumMenu(userID))
 	bot.Send(msg)
+}
+
+// schedulePromoNotification планирует отправку уведомления ровно через 12 часов после истечения
+func schedulePromoNotification(bot *tgbotapi.BotAPI, promoCode string, expirationDate time.Time, logger *zerolog.Logger) {
+	// Время отправки = дата истечения + 12 часов
+	notificationTime := expirationDate.Add(12 * time.Hour)
+
+	// Вычисляем, через сколько времени отправлять
+	timeUntilNotification := time.Until(notificationTime)
+
+	// Если время уже прошло, отправляем сразу
+	if timeUntilNotification <= 0 {
+		logger.Info().
+			Str("promo_code", promoCode).
+			Time("expiration_date", expirationDate).
+			Time("should_have_notified_at", notificationTime).
+			Msg("Promo notification time already passed - sending immediately")
+
+		// Отправляем сразу
+		sendPromoNotification(bot, promoCode, expirationDate, logger)
+		return
+	}
+
+	logger.Info().
+		Str("promo_code", promoCode).
+		Time("will_notify_at", notificationTime).
+		Dur("in", timeUntilNotification).
+		Msg("Scheduled promo expiration notification")
+
+	// Ждем нужное время
+	timer := time.NewTimer(timeUntilNotification)
+	defer timer.Stop()
+
+	<-timer.C
+
+	// Отправляем уведомление
+	sendPromoNotification(bot, promoCode, expirationDate, logger)
+}
+
+// sendPromoNotification отправляет уведомление об истечении промокода
+func sendPromoNotification(bot *tgbotapi.BotAPI, promoCode string, expiredAt time.Time, logger *zerolog.Logger) {
+	adminChatIDStr := os.Getenv("ADMIN_CHAT_ID")
+	if adminChatIDStr == "" {
+		logger.Info().
+			Str("promo_code", promoCode).
+			Time("expired_at", expiredAt).
+			Msg("Promo code expired notification - no admin chat configured")
+		return
+	}
+
+	adminChatID, err := strconv.ParseInt(adminChatIDStr, 10, 64)
+	if err != nil {
+		logger.Error().Err(err).Msg("Invalid admin chat ID")
+		return
+	}
+
+	// Вычисляем, сколько времени прошло с момента истечения
+	timeSinceExpiration := time.Since(expiredAt)
+	hoursExpired := int(timeSinceExpiration.Hours())
+
+	var statusText string
+	if hoursExpired >= 12 {
+		statusText = fmt.Sprintf("Expired %d hours ago", hoursExpired)
+	} else {
+		statusText = "Just expired 12 hours ago"
+	}
+
+	messageText := fmt.Sprintf(
+		"🚨 **Promo Code Expired**\n\n"+
+			"**Code:** `%s`\n"+
+			"**Expired:** %s\n"+
+			"**Status:** %s\n\n"+
+			"Users can no longer use this promotional code.",
+		promoCode,
+		expiredAt.Format("January 2, 2006 at 15:04 MST"),
+		statusText,
+	)
+
+	msg := tgbotapi.NewMessage(adminChatID, messageText)
+	msg.ParseMode = "Markdown"
+
+	_, err = bot.Send(msg)
+	if err != nil {
+		logger.Error().Err(err).Str("promo_code", promoCode).Msg("Failed to send promo expiration notification")
+	} else {
+		logger.Info().
+			Str("promo_code", promoCode).
+			Int("hours_expired", hoursExpired).
+			Msg("Promo expiration notification sent successfully")
+	}
 }
