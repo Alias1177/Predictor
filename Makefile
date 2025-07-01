@@ -4,6 +4,7 @@
 build:
 	go build -o bin/tgbot cmd/tgbot/main.go
 	go build -o bin/webhook cmd/stripe_webhook/main.go
+	go build -o bin/broadcast cmd/broadcast/main.go
 
 # Запуск без HTTPS
 run:
@@ -83,6 +84,14 @@ deps:
 test:
 	go test ./...
 
+# Рассылка сообщений
+broadcast:
+	./bin/broadcast
+
+# Рассылка с предварительной сборкой
+broadcast-run: build
+	./bin/broadcast
+
 # Очистка
 clean:
 	rm -rf bin/
@@ -112,4 +121,6 @@ help:
 	@echo "  clean-certs        - Удалить сертификаты"
 	@echo "  deps               - Обновить зависимости"
 	@echo "  clean              - Очистить собранные файлы"
+	@echo "  broadcast          - Запустить рассылку сообщений"
+	@echo "  broadcast-run      - Собрать и запустить рассылку"
 	@echo "  install            - Полная установка (зависимости + сборка + сертификаты для IP)" 

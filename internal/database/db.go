@@ -358,3 +358,43 @@ func (db *DB) MarkEventProcessed(eventID string) error {
 	`, eventID)
 	return err
 }
+
+// GetAllUsers получает всех пользователей для рассылки
+func (db *DB) GetAllUsers() ([]models.UserSubscription, error) {
+	rows, err := db.Query(`
+		SELECT user_id, chat_id, status, created_at, expires_at, 
+		       COALESCE(payment_id, ''), COALESCE(stripe_subscription_id, ''), 
+		       COALESCE(currency_pair, ''), COALESCE(timeframe, ''), 
+		       COALESCE(last_predicted, '1970-01-01'::timestamp)
+		FROM user_subscriptions 
+		ORDER BY created_at DESC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var users []models.UserSubscription
+	for rows.Next() {
+		var user models.UserSubscription
+		var lastPredicted time.Time
+
+		err := rows.Scan(
+			&user.UserID, &user.ChatID, &user.Status, &user.CreatedAt, &user.ExpiresAt,
+			&user.PaymentID, &user.StripeSubscriptionID, &user.CurrencyPair, &user.Timeframe,
+			&lastPredicted,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		// Проверяем, не является ли lastPredicted нулевой датой
+		if !lastPredicted.IsZero() && lastPredicted.Year() > 1970 {
+			user.LastPredicted = lastPredicted
+		}
+
+		users = append(users, user)
+	}
+
+	return users, rows.Err()
+}
