@@ -106,21 +106,6 @@ cp env.example .env
 
 Edit the `.env` file with your actual keys:
 
-**Basic Configuration:**
-- `TELEGRAM_BOT_TOKEN` - Get this from [BotFather](https://t.me/botfather)
-- `TELEGRAM_BOT_USERNAME` - Your bot's username without the @ symbol
-- `STRIPE_API_KEY` - Your Stripe API key from the Stripe dashboard
-- `STRIPE_SUBSCRIPTION_PRICE_ID` - Create a price/product in Stripe and use its ID
-- `STRIPE_WEBHOOK_SECRET` - Create a webhook endpoint in Stripe and use its signing secret
-- `TWELVE_API_KEY` - Get this from [Twelve Data](https://twelvedata.com/)
-- `DB_*` - PostgreSQL connection parameters
-
-**HTTPS Configuration:**
-- `USE_HTTPS` - Set to `true` to enable HTTPS
-- `DOMAIN` - Your domain for Let's Encrypt (optional)
-- `CERT_DIR` - Directory for certificates (default: `./certs`)
-- `TLS_CERT_FILE` - Path to certificate file
-- `TLS_KEY_FILE` - Path to private key file
 
 ## Running the Bot
 
