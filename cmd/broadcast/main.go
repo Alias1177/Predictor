@@ -58,14 +58,14 @@ func main() {
 
 	// Broadcast message
 	message := "🔥 **IMPORTANT ANNOUNCEMENT** 🔥\n\n" +
-		"📢 **Special 24-Hour Pricing!**\n\n" +
-		"For the next 24 hours only, our premium trading bot will be available for just **$2.9**!\n\n" +
+		"📢 **Special 12-Hour Pricing 80% sale!**\n\n" +
+		"For the next 12 hours only, our premium trading bot will be available for just **$2.9**!\n\n" +
 		"🚀 This is a limited-time offer to get access to:\n" +
 		"• Advanced market predictions\n" +
 		"• Multiple trading pairs\n" +
 		"• Real-time technical analysis\n" +
 		"• Professional trading signals\n\n" +
-		"⏰ **Don't miss out!** This special price expires in 24 hours.\n\n" +
+		"⏰ **Don't miss out!** This special price expires in 12 hours.\n\n" +
 		"💰 Upgrade now and start making smarter trading decisions!\n\n" +
 		"Use the /start command to begin!"
 
