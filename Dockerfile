@@ -1,9 +1,9 @@
-FROM golang:latest AS builder
+FROM golang:1.23-alpine AS builder
 
 WORKDIR /app
 
 # Установка необходимых пакетов
-RUN apk update && apk add --no-cache gcc musl-dev || apt-get update && apt-get install -y gcc libc6-dev
+RUN apk update && apk add --no-cache gcc musl-dev
 
 # Копируем go.mod и go.sum
 COPY go.mod go.sum ./
